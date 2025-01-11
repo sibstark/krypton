@@ -8,7 +8,14 @@
     "dist"
   ],
   "compilerOptions": {
+    "baseUrl": ".",
     "jsx": "react-jsx",
-    "jsxImportSource": "react"
+    "jsxImportSource": "react",
+    "paths": {
+      "@features/*": ["src/features/*"],
+      "@layouts/*": ["src/layouts/*"],
+      "@layouts": ["src/layouts/index.astro"],
+      "@styles": ["src/styles/index.css"]
+    }
   }
 }

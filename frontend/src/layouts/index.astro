@@ -1,0 +1,26 @@
+---
+import "@styles";
+---
+<!doctype html>
+<html class="h-full w-full" lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+		<meta name="generator" content={Astro.generator} />
+		<title>krypton</title>
+	</head>
+	<body class="margin[0]">
+		<header class="backdrop-blur-xl flex align-middle justify-between sticky top-0 left-0">
+			<nav>
+				<a href="/">Home</a>
+				<a href="/about">About</a>
+				<a href="/blog">Blog</a>
+			</nav>
+		</header>
+		<main>
+			<slot />
+		</main>
+		<footer></footer>
+	</body>
+</html>
