@@ -2,7 +2,7 @@
   "extends": "astro/tsconfigs/strict",
   "include": [
     ".astro/types.d.ts",
-    "**/*"
+    "**/*"  
   ],
   "exclude": [
     "dist"
@@ -15,7 +15,9 @@
       "@features/*": ["src/features/*"],
       "@layouts/*": ["src/layouts/*"],
       "@layouts": ["src/layouts/index.astro"],
-      "@styles": ["src/styles/index.css"]
+      "@styles": ["src/styles/index.css"],
+      "@types": ["src/types"],
+      "@context": ["src/context"]
     }
   }
 }

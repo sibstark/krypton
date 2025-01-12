@@ -1,6 +1,8 @@
 ---
 import "@styles";
+import { AppProvider } from "@context";
 ---
+
 <!doctype html>
 <html class="h-full w-full" lang="en">
 	<head>
@@ -11,16 +13,29 @@ import "@styles";
 		<title>krypton</title>
 	</head>
 	<body class="margin[0]">
-		<header class="backdrop-blur-xl flex align-middle justify-between sticky top-0 left-0">
-			<nav>
-				<a href="/">Home</a>
-				<a href="/about">About</a>
-				<a href="/blog">Blog</a>
-			</nav>
-		</header>
-		<main>
-			<slot />
-		</main>
-		<footer></footer>
+		<AppProvider client:load>
+			<header
+				class="backdrop-blur-xl sticky top-0 left-0 px-36 py-4 border-b"
+			>
+				<nav class="flex align-middle justify-between">
+					<ul class="appearance-none flex align-middle gap-4">
+						<li>
+							<a href="/">Home</a>
+						</li>
+						<li>
+							<a href="/about">About</a>
+						</li>
+						<li>
+							<a href="/blog">Blog</a>
+						</li>
+					</ul>
+				</nav>
+			</header>
+			<main>
+				<slot />
+			</main>
+			<footer></footer>
+		</AppProvider>
 	</body>
+	<div id="modal"></div>
 </html>
