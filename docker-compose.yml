@@ -1,0 +1,33 @@
+services:
+  db:
+    build:
+      context: ./db
+    env_file:
+      - .env
+    restart: always
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data/pgdata
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    restart: always
+    env_file:
+      - .env
+    ports:
+      - "80:80"
+    volumes:
+      - pgadmin:/var/lib/pgadmin
+    depends_on:
+      - db
+    networks:
+      - pgnetwork
+volumes:
+  pgdata:
+    driver: local
+  pgadmin:
+    driver: local
+networks:
+  pgnetwork:
+    driver: bridge
+
