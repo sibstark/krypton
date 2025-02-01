@@ -1,13 +1,19 @@
 use dotenv::dotenv;
 use serde::{Deserialize, Serialize};
 use teloxide::{
-    dispatching::dialogue::{GetChatId, InMemStorage},
+    dispatching::{
+        dialogue::{Dialogue, InMemStorage},
+        DpHandlerDescription,
+    },
+    filter_command,
     prelude::*,
     utils::command::BotCommands,
+    RequestError,
 };
 mod krypton_bot;
 use krypton_bot::KryptonBot;
 use std::env::var;
+use std::sync::Arc;
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 enum DialogState {
@@ -32,7 +38,14 @@ async fn main() {
 
     let bot = KryptonBot::new(token, db_connection).await.unwrap();
 
-    Command::repl(bot.bot, answer).await;
+    let storage = InMemStorage::<DialogState>::new(); // Создаём Arc
+
+    Dispatcher::builder(bot.bot.clone(), handler()) // bot.bot передаётся в Dispatcher
+        .dependencies(dptree::deps![storage.clone()]) // Передаём storage без двойного Arc
+        .enable_ctrlc_handler()
+        .build()
+        .dispatch()
+        .await;
 }
 
 #[derive(BotCommands, Clone)]
@@ -89,11 +102,19 @@ async fn answer(bot: Bot, msg: Message, cmd: Command) -> ResponseResult<()> {
     Ok(())
 }
 
+fn handler() -> Handler<'static, DependencyMap, Result<(), RequestError>, DpHandlerDescription> {
+    dptree::entry().branch(
+        Update::filter_message()
+            .enter_dialogue::<Message, InMemStorage<DialogState>, DialogState>()
+            .branch(filter_command::<Command, ResponseResult<()>>().endpoint(command_handler)),
+    )
+}
+
 async fn command_handler(
     bot: Bot,
     msg: Message,
     cmd: Command,
-    dialogue: Dialogue<InMemStorage<DialogState>>,
+    dialogue: Dialogue<InMemStorage<DialogState>, DialogState>,
 ) -> ResponseResult<()> {
     match cmd {
         Command::Start => handle_start(bot, msg, dialogue).await,
@@ -104,9 +125,20 @@ async fn command_handler(
     }
 }
 
+async fn handle_start(
+    bot: Bot,
+    msg: Message,
+    dialogue: Dialogue<InMemStorage<DialogState>, DialogState>,
+) -> ResponseResult<()> {
+    bot.send_message(msg.chat.id, Command::descriptions().to_string())
+        .await?;
+
+    Ok(())
+}
+
 async fn handle_unknown_command(bot: Bot, msg: Message) -> ResponseResult<()> {
     bot.send_message(msg.chat.id, format!("Unknow command, try /start"))
-    .await?;
+        .await?;
 
     Ok(())
 }
