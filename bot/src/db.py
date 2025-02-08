@@ -4,7 +4,10 @@ from typing import Optional, List
 from sqlalchemy import BigInteger, Text, Numeric, Boolean, DateTime, JSON, UUID,ForeignKey, create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, relationship, Mapped, mapped_column
 from sqlalchemy.sql import func
+from dotenv import load_dotenv
 import os
+
+load_dotenv()
 
 # declarative base class
 class Base(DeclarativeBase):
