@@ -1,6 +1,8 @@
 from datetime import datetime
 import uuid
 from typing import Optional, List
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy import BigInteger, Text, Numeric, Boolean, DateTime, JSON, UUID,ForeignKey, create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, relationship, Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -33,6 +35,7 @@ class Channel(Base):
    __tablename__ = 'channels'
 
    channel_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+   linked_channel_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
    owner_telegram_id: Mapped[int] = mapped_column(BigInteger, ForeignKey('users.telegram_id'), nullable=False)
    title: Mapped[str] = mapped_column(Text, nullable=False)
    description: Mapped[str] = mapped_column(Text, nullable=False)
@@ -101,43 +104,38 @@ DB_HOST = os.getenv('DB_HOST', 'localhost')
 DB_PORT = os.getenv('DB_PORT', '5432')
 DB_NAME = os.getenv('POSTGRES_DB', 'telegram_bot_db')
 
-def check_database_exists():
-    # Подключаемся к postgres для проверки существования базы данных
-    engine = create_engine(f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/postgres")
+async_engine = create_async_engine(f"postgresql+asyncpg://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}", isolation_level="AUTOCOMMIT")
+async_session = async_sessionmaker(async_engine, class_=AsyncSession, expire_on_commit=False)
+
+async def check_database_exists():
     
-    with engine.connect() as conn:
+    async with async_engine.connect() as conn:
         # Проверяем существование базы данных
-        result = conn.execute(text(
+        result = await conn.execute(text(
             f"SELECT 1 FROM pg_database WHERE datname = '{DB_NAME}'"
         ))
         exists = result.scalar() is not None
         
         if not exists:
             # Создаем базу данных если она не существует
-            conn.execute(text(f"CREATE DATABASE {DB_NAME}"))
-            conn.commit()
+            await conn.execute(text(f"CREATE DATABASE {DB_NAME}"))
+            # await conn.commit()
             print(f"Database {DB_NAME} created")
         else:
             print(f"Database {DB_NAME} already exists")
-    
-    engine.dispose()
 
-def init_database():
+async def init_database():
     # Проверяем и создаем базу данных если нужно
-    check_database_exists()
-    
-    # Подключаемся к созданной базе данных
-    engine = create_engine(f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
+   await check_database_exists()
     
     # Создаем все таблицы
-    print("Creating tables...")
-    Base.metadata.create_all(engine)
+   async with async_engine.begin() as conn:
+      print("Creating tables...")
+      await conn.run_sync(Base.metadata.create_all)
     
-    # Проверяем созданные таблицы
-    inspector = inspect(engine)
-    print("\nCreated tables:")
-    for table_name in inspector.get_table_names():
-        print(f"- {table_name}")
-    
-    # Закрываем соединение
-    engine.dispose()
+   # Проверяем созданные таблицы
+   async with async_engine.begin() as conn:
+      tables = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_table_names())
+      print("\nCreated tables:")
+      for table_name in tables:
+         print(f"- {table_name}")

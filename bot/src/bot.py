@@ -1,18 +1,17 @@
-from typing import Any, Dict, Optional, Sequence, Union
 import os
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.types import Message, ChatMemberUpdated, ChatMemberUpdated
 from aiogram.filters import Command, BaseFilter, ChatMemberUpdatedFilter, IS_NOT_MEMBER, MEMBER, ADMINISTRATOR
 from dotenv import load_dotenv
 from db import init_database
-from telethon import TelegramClient, events
-from telethon.tl.types import PeerUser, PeerChat, PeerChannel
+from telethon import TelegramClient
+from telethon.tl.types import PeerUser
 from telethon.tl.functions.channels import GetParticipantRequest
-from telethon.tl.types import ChannelParticipantsSearch
+from sqlalchemy.orm import sessionmaker
+from db import User, async_engine
 
 load_dotenv()
 
-init_database()
 
 API_ID = os.getenv("API_ID")
 API_HASH = os.getenv("API_HASH")
@@ -73,19 +72,37 @@ async def bot_added_to_channel(event: ChatMemberUpdated):
 )
 async def bot_added_as_admin(event: ChatMemberUpdated):
     chat_info = await bot.get_chat(event.chat.id)
-    # Самый простой случай: бот добавлен как админ.
-    # Легко можем отправить сообщение
-    if chat_info.permissions and not chat_info.permissions.can_invite_users:
-        await event.answer(
-            text=f"Привет! Спасибо, что добавили меня в "
-                 f"как обычного участника. ID чата: {event.chat.id}"
-        )
-    else:
-        print("Как-нибудь логируем эту ситуацию")
-    await event.answer(
-        text=f"Привет! Спасибо, что добавили меня"
-             f"как администратора. ID чата: {event.chat.id}"
-    )
+    admins = await chat_info.get_administrators()
+
+    # Find the owner of the chat
+    owner = next((admin for admin in admins if admin.status == 'creator'), None)
+    # if owner:
+        # Database connection
+        # Session = sessionmaker(bind=async_engine)
+        # session = Session()
+
+        # Check if the user already exists in the database
+        # user_exists = session.query(User).filter_by(telegram_id=owner.user.id).first()
+        # if not user_exists:
+            # Add the owner to the database
+        #    new_user = User(
+        #        telegram_id=owner.user.id,
+        #        username=owner.user.username,
+        #        first_name=owner.user.first_name,
+        #        last_name=owner.user.last_name
+        #    )
+        #    session.add(new_user)
+        #    session.commit()
+        #    print(f"User {owner.user.username} added to the database.")
+        # else:
+        #    print(f"User {owner.user.username} already exists in the database.")
+
+        # session.close()
+
+@router.channel_post()
+async def channel_linked_chat_changed(message: Message):
+    print("Как-нибудь логируем эту ситуацию")
+
 
 async def remove_user(chat_id:int, user_id:int):
     user = await client(GetParticipantRequest(chat_id, 352892531))
@@ -106,7 +123,9 @@ async def ban_user(message: Message):
         chat_id = message.chat.id
         # users = await client.get_participants(await client.get_input_entity(chat_id))
         user_to_ban = await bot.get_chat_member(chat_id, 352892531)
-        
+        chat = await bot.get_chat(chat_id)
+        print(chat.linked_chat_id)
+    
         if not user_to_ban:
             await message.answer("Пользователь не найден.")
             return
@@ -120,6 +139,7 @@ async def ban_user(message: Message):
 
 async def main() -> None:
     dp.include_router(router)
+    await init_database()
     await client.start()
     await dp.start_polling(bot)
 
