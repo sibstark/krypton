@@ -38,14 +38,14 @@ class Channel(Base):
    channel_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
    linked_channel_id: Mapped[int] = mapped_column(BigInteger, nullable=True)
    owner_telegram_id: Mapped[int] = mapped_column(BigInteger, ForeignKey('users.telegram_id'), nullable=False)
-   title: Mapped[str] = mapped_column(Text, nullable=False)
-   description: Mapped[str] = mapped_column(Text, nullable=False)
-   monthly_price: Mapped[float] = mapped_column(Numeric, nullable=False)
+   title: Mapped[str] = mapped_column(Text, nullable=True)
+   description: Mapped[str] = mapped_column(Text, nullable=True)
+   monthly_price: Mapped[float] = mapped_column(Numeric, nullable=True)
    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
    bot_added_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
    settings: Mapped[dict] = mapped_column(JSON, nullable=False, server_default='{}')
    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default='true')
-   last_check_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+   last_check_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, server_default=func.now())
 
    # Relationships
    owner: Mapped["User"] = relationship("User", back_populates="channels")

@@ -8,7 +8,8 @@ from telethon import TelegramClient
 from telethon.tl.types import PeerUser
 from telethon.tl.functions.channels import GetParticipantRequest
 from sqlalchemy.orm import sessionmaker
-from db import User, db_config, db_initializer
+from db import User, Channel, db_config, db_initializer
+from datetime import datetime, timezone
 
 load_dotenv()
 
@@ -94,10 +95,21 @@ async def bot_added_as_admin(event: ChatMemberUpdated):
                     last_name=owner.user.last_name
                 )
                 session.add(new_user)
-                await session.commit()
                 print(f"User {owner.user.username} added to the database.")
             else:
                 print(f"User {owner.user.username} already exists in the database.")
+            new_channel = Channel(
+                channel_id=chat_info.id,
+                linked_channel_id=chat_info.linked_chat_id,
+                owner_telegram_id=owner.user.id,
+                title=chat_info.title,
+                description=chat_info.description,
+                bot_added_at=datetime.now(timezone.utc)
+            )
+            session.add(new_channel)
+            await session.commit()
+        
+            
 
 @router.channel_post()
 async def channel_linked_chat_changed(message: Message):
