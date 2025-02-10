@@ -3,12 +3,12 @@ from aiogram import Bot, Dispatcher, Router, F
 from aiogram.types import Message, ChatMemberUpdated, ChatMemberUpdated
 from aiogram.filters import Command, BaseFilter, ChatMemberUpdatedFilter, IS_NOT_MEMBER, MEMBER, ADMINISTRATOR
 from dotenv import load_dotenv
-from db import init_database
+from sqlalchemy import select
 from telethon import TelegramClient
 from telethon.tl.types import PeerUser
 from telethon.tl.functions.channels import GetParticipantRequest
 from sqlalchemy.orm import sessionmaker
-from db import User, async_engine
+from db import User, db_config, db_initializer
 
 load_dotenv()
 
@@ -76,28 +76,28 @@ async def bot_added_as_admin(event: ChatMemberUpdated):
 
     # Find the owner of the chat
     owner = next((admin for admin in admins if admin.status == 'creator'), None)
-    # if owner:
+    if owner:
         # Database connection
-        # Session = sessionmaker(bind=async_engine)
-        # session = Session()
+        async with db_config.async_session() as session:
+            user_exists = await session.execute(
+                select(User).filter_by(telegram_id=owner.user.id)
+            )
+            user_exists = user_exists.scalar()
 
-        # Check if the user already exists in the database
-        # user_exists = session.query(User).filter_by(telegram_id=owner.user.id).first()
-        # if not user_exists:
-            # Add the owner to the database
-        #    new_user = User(
-        #        telegram_id=owner.user.id,
-        #        username=owner.user.username,
-        #        first_name=owner.user.first_name,
-        #        last_name=owner.user.last_name
-        #    )
-        #    session.add(new_user)
-        #    session.commit()
-        #    print(f"User {owner.user.username} added to the database.")
-        # else:
-        #    print(f"User {owner.user.username} already exists in the database.")
-
-        # session.close()
+                # Check if the user already exists in the database
+            if not user_exists:
+                    # Add the owner to the database
+                new_user = User(
+                    telegram_id=owner.user.id,
+                    username=owner.user.username,
+                    first_name=owner.user.first_name,
+                    last_name=owner.user.last_name
+                )
+                session.add(new_user)
+                await session.commit()
+                print(f"User {owner.user.username} added to the database.")
+            else:
+                print(f"User {owner.user.username} already exists in the database.")
 
 @router.channel_post()
 async def channel_linked_chat_changed(message: Message):
@@ -139,7 +139,7 @@ async def ban_user(message: Message):
 
 async def main() -> None:
     dp.include_router(router)
-    await init_database()
+    await db_initializer.init_database()
     await client.start()
     await dp.start_polling(bot)
 

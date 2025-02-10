@@ -1,13 +1,14 @@
 from datetime import datetime
 import uuid
-from typing import Optional, List
-from sqlalchemy.orm import sessionmaker
+from typing import AsyncGenerator, Optional, List
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy import BigInteger, Text, Numeric, Boolean, DateTime, JSON, UUID,ForeignKey, create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, relationship, Mapped, mapped_column
 from sqlalchemy.sql import func
+from sqlalchemy.exc import SQLAlchemyError
 from dotenv import load_dotenv
 import os
+from contextlib import asynccontextmanager
 
 load_dotenv()
 
@@ -97,45 +98,81 @@ class InviteLink(Base):
    channel: Mapped["Channel"] = relationship("Channel", back_populates="invite_links")
    user: Mapped["User"] = relationship("User", back_populates="invite_links")
 
-   # Параметры подключения к PostgreSQL
-DB_USER = os.getenv('POSTGRES_USER', 'postgres')
-DB_PASSWORD = os.getenv('POSTGRES_PASSWORD', 'postgres')
-DB_HOST = os.getenv('DB_HOST', 'localhost')
-DB_PORT = os.getenv('DB_PORT', '5432')
-DB_NAME = os.getenv('POSTGRES_DB', 'telegram_bot_db')
 
-async_engine = create_async_engine(f"postgresql+asyncpg://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}", isolation_level="AUTOCOMMIT")
-async_session = async_sessionmaker(async_engine, class_=AsyncSession, expire_on_commit=False)
+class DatabaseConfig:
+   """Database configuration and connection management."""
+    
+   def __init__(self):
+      load_dotenv()
+      self.user = os.getenv('POSTGRES_USER', 'postgres')
+      self.password = os.getenv('POSTGRES_PASSWORD', 'postgres')
+      self.host = os.getenv('DB_HOST', 'localhost')
+      self.port = os.getenv('DB_PORT', '5432')
+      self.name = os.getenv('POSTGRES_DB', 'telegram_bot_db')
+         
+      self.engine = create_async_engine(
+            f"postgresql+asyncpg://{self.user}:{self.password}@{self.host}:{self.port}/{self.name}",
+            isolation_level="AUTOCOMMIT",
+            echo=False,
+            pool_size=5,
+            max_overflow=10
+         )
+         
+      self.async_session = async_sessionmaker(self.engine, class_=AsyncSession, expire_on_commit=False)
 
-async def check_database_exists():
-    
-    async with async_engine.connect() as conn:
-        # Проверяем существование базы данных
-        result = await conn.execute(text(
-            f"SELECT 1 FROM pg_database WHERE datname = '{DB_NAME}'"
-        ))
-        exists = result.scalar() is not None
-        
-        if not exists:
-            # Создаем базу данных если она не существует
-            await conn.execute(text(f"CREATE DATABASE {DB_NAME}"))
-            # await conn.commit()
-            print(f"Database {DB_NAME} created")
-        else:
-            print(f"Database {DB_NAME} already exists")
+   async def get_session(self) -> AsyncGenerator[AsyncSession, None]:
+      """Get database session with automatic cleanup."""
+      session = self.async_session()
+      try:
+         yield session
+      finally:
+         await session.close()
 
-async def init_database():
-    # Проверяем и создаем базу данных если нужно
-   await check_database_exists()
+class DatabaseInitializer:
+   """Handle database initialization and table creation."""
     
-    # Создаем все таблицы
-   async with async_engine.begin() as conn:
-      print("Creating tables...")
-      await conn.run_sync(Base.metadata.create_all)
-    
-   # Проверяем созданные таблицы
-   async with async_engine.begin() as conn:
-      tables = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_table_names())
-      print("\nCreated tables:")
-      for table_name in tables:
-         print(f"- {table_name}")
+   def __init__(self, config: DatabaseConfig):
+      self.config = config
+         
+   async def check_database_exists(self) -> None:
+      """Check if database exists and create if it doesn't."""
+      try:
+         async with self.config.engine.begin() as conn:
+            result = await conn.execute(text(f"SELECT 1 FROM pg_database WHERE datname = '{self.config.name}'"))
+            exists = result.scalar() is not None
+                  
+            if not exists:
+               await conn.execute(text(f"CREATE DATABASE {self.config.name}"))
+               print(f"Database {self.config.name} created successfully")
+            else:
+               print(f"Database {self.config.name} already exists")
+      except SQLAlchemyError as e:
+         print(f"Error checking/creating database: {e}")
+         raise
+
+   async def init_tables(self) -> None:
+      """Initialize database tables."""
+      try:
+         async with self.config.engine.begin() as conn:
+            print("Creating database tables...")
+            await conn.run_sync(Base.metadata.create_all)
+                  
+         async with self.config.engine.begin() as conn:
+            tables = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_table_names())
+            print("Created tables: %s", ", ".join(tables))
+      except SQLAlchemyError as e:
+         print(f"Error creating tables: {e}")
+         raise
+
+   async def init_database(self) -> None:
+      """Initialize complete database setup."""
+      try:
+         await self.check_database_exists()
+         await self.init_tables()
+         print("Database initialization completed successfully")
+      except Exception as e:
+         print(f"Database initialization failed: {e}")
+         raise
+      
+db_config = DatabaseConfig()
+db_initializer = DatabaseInitializer(db_config)
