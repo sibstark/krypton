@@ -1,13 +1,12 @@
 import os
 from aiogram import Bot, Dispatcher, Router, F
-from aiogram.types import Message, ChatMemberUpdated, ChatMemberUpdated
+from aiogram.types import Message, ChatMemberUpdated
 from aiogram.filters import Command, BaseFilter, ChatMemberUpdatedFilter, IS_NOT_MEMBER, MEMBER, ADMINISTRATOR
 from dotenv import load_dotenv
 from sqlalchemy import select
 from telethon import TelegramClient
 from telethon.tl.types import PeerUser
 from telethon.tl.functions.channels import GetParticipantRequest
-from sqlalchemy.orm import sessionmaker
 from db import User, Channel, db_config, db_initializer
 from datetime import datetime, timezone
 
@@ -20,6 +19,62 @@ API_HASH = os.getenv("API_HASH")
 client = TelegramClient("session_name", API_ID, API_HASH)
 bot: Bot = Bot(token=os.getenv('BOT_TOKEN', ''))
 dp: Dispatcher = Dispatcher()
+
+# возможно нужно раделить на 2 метода - single responsibility
+async def update_channel_and_owner(chat_id: int) -> None:
+    chat_info = await bot.get_chat(chat_id)
+    admins = await chat_info.get_administrators()
+
+    # Find the owner of the chat
+    owner = next((admin for admin in admins if admin.status == 'creator'), None)
+    if owner:
+        # Database connection
+        async with db_config.async_session() as session:
+            user = await session.execute(
+                select(User).filter_by(telegram_id=owner.user.id)
+            )
+            user_exists = user.scalar()
+                # Check if the user already exists in the database
+            if not user_exists:
+                # Add the owner to the database
+                new_user = User(
+                    telegram_id=owner.user.id,
+                    username=owner.user.username,
+                    first_name=owner.user.first_name,
+                    last_name=owner.user.last_name
+                )
+                session.add(new_user)
+                print(f"User {owner.user.username} added to the database.")
+            else:
+                # Update the existing user's information
+                user_exists.username = owner.user.username
+                user_exists.first_name = owner.user.first_name
+                user_exists.last_name = owner.user.last_name
+                session.add(user_exists)
+                print(f"User {owner.user.username} already exists in the database and was updated.")
+            
+            channel = await session.execute(
+                select(Channel).filter_by(channel_id=chat_id)
+            )
+            channel_exists = channel.scalar()
+            if not channel_exists:
+                new_channel = Channel(
+                    channel_id=chat_info.id,
+                    linked_channel_id=chat_info.linked_chat_id,
+                    owner_telegram_id=owner.user.id,
+                    title=chat_info.title,
+                    description=chat_info.description,
+                    bot_added_at=datetime.now(timezone.utc)
+                )
+                session.add(new_channel)
+            else:
+                channel_exists.linked_channel_id=chat_info.linked_chat_id
+                channel_exists.owner_telegram_id=owner.user.id
+                channel_exists.title=chat_info.title,
+                channel_exists.description=chat_info.description
+                session.add(channel_exists)
+            await session.commit()
+
 
 class CommandFilter(BaseFilter):
 
@@ -66,55 +121,15 @@ async def bot_added_to_channel(event: ChatMemberUpdated):
     else:
         print("Как-нибудь логируем эту ситуацию")
 
-@router.my_chat_member(
-    ChatMemberUpdatedFilter(
-        member_status_changed=IS_NOT_MEMBER >> ADMINISTRATOR
-    )
-)
+@router.my_chat_member(ChatMemberUpdatedFilter(member_status_changed=IS_NOT_MEMBER >> ADMINISTRATOR))
 async def bot_added_as_admin(event: ChatMemberUpdated):
-    chat_info = await bot.get_chat(event.chat.id)
-    admins = await chat_info.get_administrators()
-
-    # Find the owner of the chat
-    owner = next((admin for admin in admins if admin.status == 'creator'), None)
-    if owner:
-        # Database connection
-        async with db_config.async_session() as session:
-            user_exists = await session.execute(
-                select(User).filter_by(telegram_id=owner.user.id)
-            )
-            user_exists = user_exists.scalar()
-
-                # Check if the user already exists in the database
-            if not user_exists:
-                    # Add the owner to the database
-                new_user = User(
-                    telegram_id=owner.user.id,
-                    username=owner.user.username,
-                    first_name=owner.user.first_name,
-                    last_name=owner.user.last_name
-                )
-                session.add(new_user)
-                print(f"User {owner.user.username} added to the database.")
-            else:
-                print(f"User {owner.user.username} already exists in the database.")
-            new_channel = Channel(
-                channel_id=chat_info.id,
-                linked_channel_id=chat_info.linked_chat_id,
-                owner_telegram_id=owner.user.id,
-                title=chat_info.title,
-                description=chat_info.description,
-                bot_added_at=datetime.now(timezone.utc)
-            )
-            session.add(new_channel)
-            await session.commit()
+    await update_channel_and_owner(event.chat.id)
         
             
 
 @router.channel_post()
 async def channel_linked_chat_changed(message: Message):
-    print("Как-нибудь логируем эту ситуацию")
-
+    await update_channel_and_owner(message.chat.id)
 
 async def remove_user(chat_id:int, user_id:int):
     user = await client(GetParticipantRequest(chat_id, 352892531))
