@@ -247,7 +247,9 @@ dependencies = [
  "log",
  "pretty_env_logger",
  "sea-orm",
+ "serde_json",
  "teloxide",
+ "thiserror 2.0.12",
  "tokio",
 ]
 
