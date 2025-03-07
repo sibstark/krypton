@@ -9,7 +9,7 @@ use teloxide::{
 };
 mod db;
 use chrono::Utc;
-use db::{ User, UserModel, Channel, ChannelModel };
+use db::{Channel, ChannelModel, User, UserModel};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -54,7 +54,14 @@ async fn main() -> Result<(), BotError> {
 
 fn handler() -> Handler<'static, DependencyMap, Result<(), BotError>, DpHandlerDescription> {
     dptree::entry().branch(
-        Update::filter_my_chat_member().branch(dptree::entry().endpoint(handle_chat_member_update)),
+        Update::filter_my_chat_member()
+            .filter_map(|upd: ChatMemberUpdated| {
+                match (&upd.old_chat_member.kind, &upd.new_chat_member.kind) {
+                    (ChatMemberKind::Left, ChatMemberKind::Administrator { .. }) => Some(upd),
+                    _ => None,
+                }
+            })
+            .endpoint(handle_chat_member_update),
     )
 }
 
@@ -63,85 +70,81 @@ async fn handle_chat_member_update(
     update: ChatMemberUpdated,
     db: DatabaseConnection,
 ) -> Result<(), BotError> {
-    if let (ChatMemberKind::Left, ChatMemberKind::Administrator { .. }) =
-        (update.old_chat_member.kind, update.new_chat_member.kind)
-    {
-        let chat_id = update.chat.id;
-        let admins = bot.get_chat_administrators(chat_id).await?;
-        let owner = admins
-            .iter()
-            .find(|admin| admin.status() == ChatMemberStatus::Owner);
-        match owner {
-            Some(owner) => {
-                let telegram_id = owner.user.id.0.try_into().unwrap();
-                let date_now = Utc::now().into();
-                let username = owner.user.username.clone().unwrap_or_default();
-                let first_name = owner.user.first_name.clone();
-                let last_name = owner.user.last_name.clone().unwrap_or_default();
-                let user_exists = User::find_by_id(telegram_id).one(&db).await?;
+    let chat_id = update.chat.id;
+    let admins = bot.get_chat_administrators(chat_id).await?;
+    let owner = admins
+        .iter()
+        .find(|admin| admin.status() == ChatMemberStatus::Owner);
+    match owner {
+        Some(owner) => {
+            let telegram_id = owner.user.id.0.try_into().unwrap();
+            let date_now = Utc::now().into();
+            let username = owner.user.username.clone().unwrap_or_default();
+            let first_name = owner.user.first_name.clone();
+            let last_name = owner.user.last_name.clone().unwrap_or_default();
+            let user_exists = User::find_by_id(telegram_id).one(&db).await?;
 
-                match user_exists {
-                    Some(exists) => {
-                        let mut user: UserModel = exists.into();
-                        user.last_active_at = Set(date_now);
-                        user.first_name = Set(Some(first_name));
-                        user.last_name = Set(Some(last_name));
-                        user.save(&db).await?;
-                    }
-                    None => {
-                        let user = UserModel {
-                            telegram_id: Set(telegram_id), // Обязательно `Set()`
-                            username: Set(username),
-                            first_name: Set(Some(first_name)),
-                            last_name: Set(Some(last_name)),
-                            created_at: Set(date_now),     // Дата сейчас
-                            last_active_at: Set(date_now), // Дата сейчас
-                        };
-                        user.insert(&db).await?;
-                    }
+            match user_exists {
+                Some(exists) => {
+                    let mut user: UserModel = exists.into();
+                    user.last_active_at = Set(date_now);
+                    user.first_name = Set(Some(first_name));
+                    user.last_name = Set(Some(last_name));
+                    user.save(&db).await?;
                 }
-
-                let channel_exists = Channel::find_by_id(chat_id.0).one(&db).await?;
-                let channel_title = Some(update.chat.title().unwrap().to_string());
-                let channel_description = update.chat.description().map(|s| s.to_string());
-                let date_now = Utc::now().into();
-                let chat_info = bot.get_chat(chat_id).await?;
-                let linked_channel_id = chat_info.linked_chat_id();
-                match channel_exists {
-                    Some(exists) => {
-                        let mut channel: ChannelModel = exists.into();
-                        channel.title = Set(channel_title);
-                        channel.description = Set(channel_description);
-                        channel.owner_telegram_id = Set(telegram_id);
-                        channel.linked_channel_id = Set(linked_channel_id);
-                        channel.update(&db).await?;
-                    },
-                    None => {
-                        let channel = ChannelModel {
-                            channel_id: Set(chat_id.0),
-                            linked_channel_id: Set(linked_channel_id),
-                            owner_telegram_id: Set(telegram_id),
-                            title: Set(channel_title),
-                            description: Set(channel_description),
-                            monthly_price: Set(None),
-                            bot_added_at: Set(date_now),
-                            ..Default::default()
-                        };
-                        channel.insert(&db).await?;
-                    }
+                None => {
+                    let user = UserModel {
+                        telegram_id: Set(telegram_id), // Обязательно `Set()`
+                        username: Set(username),
+                        first_name: Set(Some(first_name)),
+                        last_name: Set(Some(last_name)),
+                        created_at: Set(date_now),     // Дата сейчас
+                        last_active_at: Set(date_now), // Дата сейчас
+                    };
+                    user.insert(&db).await?;
                 }
             }
-            None => {
-                log::info!("В чате {} нет владельца", chat_id);
-                bot.send_message(
-                    update.chat.id,
-                    format!(
-                        "Спасибо за назначение меня администратором! В чате {} нет владельца",
-                        chat_id
-                    ),
-                )
-                .await?;
+
+            let channel_exists = Channel::find_by_id(chat_id.0).one(&db).await?;
+            let channel_title = Some(update.chat.title().unwrap().to_string());
+            let channel_description = update.chat.description().map(|s| s.to_string());
+            let date_now = Utc::now().into();
+            let chat_info = bot.get_chat(chat_id).await?;
+            let linked_channel_id = chat_info.linked_chat_id();
+            match channel_exists {
+                Some(exists) => {
+                    let mut channel: ChannelModel = exists.into();
+                    channel.title = Set(channel_title);
+                    channel.description = Set(channel_description);
+                    channel.owner_telegram_id = Set(telegram_id);
+                    channel.linked_channel_id = Set(linked_channel_id);
+                    channel.update(&db).await?;
+                }
+                None => {
+                    let channel = ChannelModel {
+                        channel_id: Set(chat_id.0),
+                        linked_channel_id: Set(linked_channel_id),
+                        owner_telegram_id: Set(telegram_id),
+                        title: Set(channel_title),
+                        description: Set(channel_description),
+                        monthly_price: Set(None),
+                        bot_added_at: Set(date_now),
+                        ..Default::default()
+                    };
+                    channel.insert(&db).await?;
+                }
             }
+        }
+        None => {
+            log::info!("В чате {} нет владельца", chat_id);
+            bot.send_message(
+                update.chat.id,
+                format!(
+                    "Спасибо за назначение меня администратором! В чате {} нет владельца",
+                    chat_id
+                ),
+            )
+            .await?;
         }
     }
 
