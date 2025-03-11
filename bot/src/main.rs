@@ -1,15 +1,16 @@
+use commands::Commands;
 use dotenv::dotenv;
 use sea_orm::{ActiveModelTrait, Database, DatabaseConnection, EntityTrait, Set};
 use std::env;
 use teloxide::{
-    RequestError,
-    dispatching::DpHandlerDescription,
-    prelude::*,
-    types::{ChatMemberKind, ChatMemberStatus},
+    dispatching::DpHandlerDescription, prelude::*, types::{ChatMemberKind, ChatMemberStatus}, utils::command::BotCommands, RequestError
 };
+mod commands;
 mod db;
+mod state;
 use chrono::Utc;
-use db::{Channel, ChannelModel, User, UserModel};
+use db::{Channel, ChannelModel, Settings, User, UserModel};
+use state::State;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -53,16 +54,28 @@ async fn main() -> Result<(), BotError> {
 }
 
 fn handler() -> Handler<'static, DependencyMap, Result<(), BotError>, DpHandlerDescription> {
-    dptree::entry().branch(
-        Update::filter_my_chat_member()
-            .filter_map(|upd: ChatMemberUpdated| {
-                match (&upd.old_chat_member.kind, &upd.new_chat_member.kind) {
-                    (ChatMemberKind::Left, ChatMemberKind::Administrator { .. }) => Some(upd),
-                    _ => None,
-                }
-            })
-            .endpoint(handle_chat_member_update),
-    )
+    dptree::entry()
+        .branch(
+            Update::filter_my_chat_member()
+                .filter_map(|upd: ChatMemberUpdated| {
+                    match (&upd.old_chat_member.kind, &upd.new_chat_member.kind) {
+                        (ChatMemberKind::Left, ChatMemberKind::Administrator { .. }) => Some(upd),
+                        _ => None,
+                    }
+                })
+                .endpoint(handle_chat_member_update),
+        )
+        .branch(
+            Update::filter_message()
+                .filter_command::<Commands>()
+                .endpoint(handle_command),
+        )
+        .branch(Update::filter_message().endpoint(handle_chat_message))
+}
+
+async fn handle_chat_message(bot: Bot, update: Message) -> Result<(), BotError> {
+    bot.send_message(update.chat.id, "Hello!").await?;
+    Ok(())
 }
 
 async fn handle_chat_member_update(
@@ -148,5 +161,35 @@ async fn handle_chat_member_update(
         }
     }
 
+    Ok(())
+}
+
+async fn terminate_user(bot: Bot, db: DatabaseConnection) -> Result<(), BotError> {
+    let main_settings = Settings::find_by_id("main").one(&db).await?;
+    match main_settings {
+        Some(settings) => {
+            let settings: serde_json::Value = serde_json::from_value(settings.settings).unwrap();
+            let terminator_id = settings["terminator_id"].as_i64().unwrap();
+            // bot.invite(chat_id, user_id)
+            Ok(())
+        }
+        None => Err(BotError::Database(sea_orm::DbErr::Custom(
+            "Settings not found".to_string(),
+        ))),
+    }
+}
+
+async fn handle_command(bot: Bot, msg: Message, cmd: Commands) -> Result<(), BotError> {
+    match cmd {
+        Commands::Start => {
+            bot.send_message(msg.chat.id, "Привет! Я твой бот.").await?;
+        },
+        Commands::Help => {
+            bot.send_message(msg.chat.id, Commands::descriptions().to_string()).await?;
+        },
+        _ => {
+            bot.send_message(msg.chat.id, "Not implemented").await?;
+        }
+    }
     Ok(())
 }

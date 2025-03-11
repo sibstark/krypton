@@ -1,6 +1,6 @@
 use sea_orm::entity::prelude::*;
 use chrono::{ DateTime, Utc };
-use sea_orm::{ DeriveEntityModel };
+use sea_orm::DeriveEntityModel;
 use serde_json::Value;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
