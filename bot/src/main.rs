@@ -3,15 +3,22 @@ use dotenv::dotenv;
 use sea_orm::{ActiveModelTrait, Database, DatabaseConnection, EntityTrait, Set};
 use std::env;
 use teloxide::{
-    dispatching::DpHandlerDescription, prelude::*, types::{ChatMemberKind, ChatMemberStatus}, utils::command::BotCommands, RequestError
+    RequestError,
+    dispatching::DpHandlerDescription,
+    dispatching::dialogue::{InMemStorage, InMemStorageError},
+    prelude::*,
+    types::{ChatMemberKind, ChatMemberStatus},
+    utils::command::BotCommands,
 };
 mod commands;
 mod db;
 mod state;
 use chrono::Utc;
 use db::{Channel, ChannelModel, Settings, User, UserModel};
-use state::State;
+use state::PriceState;
 use thiserror::Error;
+
+type PriceDialogue = Dialogue<PriceState, InMemStorage<PriceState>>;
 
 #[derive(Debug, Error)]
 pub enum BotError {
@@ -20,6 +27,9 @@ pub enum BotError {
 
     #[error("Telegram API error: {0}")]
     Teloxide(#[from] RequestError),
+
+    #[error("Dialog API error: {0}")]
+    InMemStorage(#[from] InMemStorageError),
 }
 
 #[tokio::main]
@@ -45,7 +55,7 @@ async fn main() -> Result<(), BotError> {
 
     Dispatcher::builder(bot, handler())
         .enable_ctrlc_handler()
-        .dependencies(dptree::deps![db.clone()])
+        .dependencies(dptree::deps![db.clone(), InMemStorage::<PriceState>::new()])
         .build()
         .dispatch()
         .await;
@@ -68,7 +78,13 @@ fn handler() -> Handler<'static, DependencyMap, Result<(), BotError>, DpHandlerD
         .branch(
             Update::filter_message()
                 .filter_command::<Commands>()
-                .endpoint(handle_command),
+                .branch(dptree::case![Commands::Start].endpoint(handle_start_command))
+                .branch(
+                    dptree::case![Commands::SetPrice]
+                        .enter_dialogue::<Message, InMemStorage<PriceState>, PriceState>()
+                        .endpoint(start_price_dialogue),
+                )
+                .endpoint(not_implemented),
         )
         .branch(Update::filter_message().endpoint(handle_chat_message))
 }
@@ -164,6 +180,7 @@ async fn handle_chat_member_update(
     Ok(())
 }
 
+/*
 async fn terminate_user(bot: Bot, db: DatabaseConnection) -> Result<(), BotError> {
     let main_settings = Settings::find_by_id("main").one(&db).await?;
     match main_settings {
@@ -178,18 +195,49 @@ async fn terminate_user(bot: Bot, db: DatabaseConnection) -> Result<(), BotError
         ))),
     }
 }
+*/
 
 async fn handle_command(bot: Bot, msg: Message, cmd: Commands) -> Result<(), BotError> {
     match cmd {
         Commands::Start => {
-            bot.send_message(msg.chat.id, "Привет! Я твой бот.").await?;
-        },
+            bot.send_message(msg.chat.id, "Hello! I'm Krypton bot.
+If you're the owner, use the /setprice command to adjust the subscription price for your private Telegram channel.
+Use the /pay command to pay for a subscription to a private Telegram channel.").await?;
+        }
         Commands::Help => {
-            bot.send_message(msg.chat.id, Commands::descriptions().to_string()).await?;
-        },
+            bot.send_message(msg.chat.id, Commands::descriptions().to_string())
+                .await?;
+        }
+        Commands::Pay => {
+            bot.send_message(msg.chat.id, Commands::descriptions().to_string())
+                .await?;
+        }
         _ => {
             bot.send_message(msg.chat.id, "Not implemented").await?;
         }
     }
+    Ok(())
+}
+
+async fn handle_start_command(bot: Bot, msg: Message) -> Result<(), BotError> {
+    bot.send_message(msg.chat.id, "Hello! I'm Krypton bot.
+    If you're the owner, use the /setprice command to adjust the subscription price for your private Telegram channel.
+    Use the /pay command to pay for a subscription to a private Telegram channel.").await?;
+    Ok(())
+}
+
+async fn start_price_dialogue(
+    bot: Bot,
+    msg: Message,
+    price_dialogue: PriceDialogue,
+) -> Result<(), BotError> {
+    bot.send_message(msg.chat.id, "Setting a new price. Enter the channel name:")
+        .await?;
+    price_dialogue.update(PriceState::SearchChannel).await?;
+    Ok(())
+}
+
+async fn not_implemented(bot: Bot, msg: Message) -> Result<(), BotError> {
+    bot.send_message(msg.chat.id, "Not implemented").await?;
     Ok(())
 }

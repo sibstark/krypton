@@ -1,13 +1,10 @@
+// Define states for the second dialogue (SetPrice)
 #[derive(Clone, Default)]
-pub enum State {
+pub enum PriceState {
     #[default]
     Start,
-    ReceiveFullName,
-    ReceiveAge {
-        full_name: String,
-    },
-    ReceiveLocation {
-        full_name: String,
-        age: u8,
-    },
+    SearchChannel,
+    ReceivePrice {
+        price: u32
+    }
 }
