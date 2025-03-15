@@ -14,7 +14,7 @@ pub struct Model {
     #[sea_orm(column_type = "BigInteger")]
     pub owner_telegram_id:i64,
     #[sea_orm(column_type = "Text")]
-    pub title: Option<String>,
+    pub title: String,
     #[sea_orm(column_type = "Text")]
     pub description: Option<String>,
     #[sea_orm(column_type = "Decimal(None)")]

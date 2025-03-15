@@ -3,8 +3,9 @@
 pub enum PriceState {
     #[default]
     Start,
-    SearchChannel,
-    ReceivePrice {
-        price: u32
+    SelectChannel,
+    EnterPrice {
+        channel_id: i64,
+        channel_name: String
     }
 }
