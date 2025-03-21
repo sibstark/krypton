@@ -42,7 +42,7 @@ impl RelationTrait for Relation {
         match self {
             Self::User => Entity::belongs_to(super::user::Entity)
                 .from(Column::OwnerTelegramId)
-                .to(<super::user::Entity as sea_orm::EntityTrait>::Column::TelegramId)
+                .to(super::user::Column::TelegramId)
                 .into(),
         }
     }

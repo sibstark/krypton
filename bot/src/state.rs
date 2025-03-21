@@ -9,3 +9,16 @@ pub enum PriceState {
         channel_name: String
     }
 }
+
+// Define states for the second dialogue (Pay)
+#[derive(Clone, Default)]
+pub enum PayState {
+    #[default]
+    Start,
+    SelectChannel,
+    Pay {
+        channel_id: i64,
+        channel_name: String
+    },
+    PaymentStatus
+}

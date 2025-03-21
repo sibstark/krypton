@@ -1,7 +1,8 @@
 use commands::Commands;
 use dotenv::dotenv;
 use sea_orm::{
-    prelude::Decimal, ActiveModelTrait, ColumnTrait, Database, DatabaseConnection, EntityTrait, QueryFilter, Set
+    ActiveModelTrait, ColumnTrait, Database, DatabaseConnection, EntityTrait, QueryFilter, Set,
+    prelude::Decimal,
 };
 use std::env;
 use teloxide::{
@@ -19,10 +20,11 @@ mod db;
 mod state;
 use chrono::Utc;
 use db::{Channel, ChannelModel, User, UserModel};
-use state::PriceState;
+use state::{PayState, PriceState};
 use thiserror::Error;
 
 type PriceDialogue = Dialogue<PriceState, InMemStorage<PriceState>>;
+type PayDialog = Dialogue<PayState, InMemStorage<PayState>>;
 
 #[derive(Debug, Error)]
 pub enum BotError {
@@ -59,7 +61,11 @@ async fn main() -> Result<(), BotError> {
 
     Dispatcher::builder(bot, handler())
         .enable_ctrlc_handler()
-        .dependencies(dptree::deps![db.clone(), InMemStorage::<PriceState>::new()])
+        .dependencies(dptree::deps![
+            db.clone(),
+            InMemStorage::<PriceState>::new(),
+            InMemStorage::<PayDialog>::new()
+        ])
         .build()
         .dispatch()
         .await;
@@ -88,6 +94,11 @@ fn handler() -> Handler<'static, DependencyMap, Result<(), BotError>, DpHandlerD
                     dptree::case![Commands::SetPrice]
                         .enter_dialogue::<Message, InMemStorage<PriceState>, PriceState>()
                         .endpoint(start_price_dialogue),
+                )
+                .branch(
+                    dptree::case![Commands::Pay]
+                        .enter_dialogue::<Message, InMemStorage<PayState>, PayState>()
+                        .endpoint(start_pay_dialogue),
                 )
                 .endpoint(not_implemented),
         )
@@ -237,7 +248,7 @@ async fn start_price_dialogue(
     bot: Bot,
     msg: Message,
     db: DatabaseConnection,
-    price_dialogue: PriceDialogue,
+    dialogue: PriceDialogue,
 ) -> Result<(), BotError> {
     let owner_id = msg.from.unwrap().id;
     let channels: Vec<db::channel::Model> = Channel::find()
@@ -248,7 +259,7 @@ async fn start_price_dialogue(
     if channels_count == 0 {
         bot.send_message(msg.chat.id, "You have no channel ownhership.")
             .await?;
-        price_dialogue.exit().await?;
+        dialogue.exit().await?;
         return Ok(());
     }
     let buttons: Vec<Vec<InlineKeyboardButton>> = channels
@@ -263,7 +274,7 @@ async fn start_price_dialogue(
     bot.send_message(msg.chat.id, "Select a channel: ")
         .reply_markup(keyboard)
         .await?;
-    price_dialogue.update(PriceState::SelectChannel).await?;
+    dialogue.update(PriceState::SelectChannel).await?;
     Ok(())
 }
 
@@ -354,9 +365,9 @@ async fn handle_price_input(
                 bot.send_message(
                     msg.chat.id,
                     format!(
-                        "✅ Price for channel \"{}\" has been set to ${:.2} per month.",
+                        "✅ Price for channel \"{}\" has been set to USD {:.2} per month.",
                         channel_name, price
-                    )
+                    ),
                 )
                 .await?;
                 dialogue.exit().await?;
@@ -374,5 +385,12 @@ async fn handle_price_input(
 
     // End the dialogue if we get here
     dialogue.exit().await?;
+    Ok(())
+}
+
+async fn start_pay_dialogue(bot: Bot, msg: Message, dialogue: PayDialog) -> Result<(), BotError> {
+    bot.send_message(msg.chat.id, "Hello! Enter channel which you want to pay subscription:")
+        .await?;
+    dialogue.update(PayState::SelectChannel).await?;
     Ok(())
 }
