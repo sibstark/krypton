@@ -28,7 +28,9 @@ pub struct Model {
     #[sea_orm(column_type = "Boolean", default_value = "true")]
     pub is_active: bool,
     #[sea_orm(column_type = "Timestamp", default_value = "now()")]
-    pub last_check_date: DateTime<Utc>
+    pub last_check_date: DateTime<Utc>,
+    #[sea_orm(column_type = "Text")]
+    pub crypto_address: String
 }
 
 
