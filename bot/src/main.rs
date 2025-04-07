@@ -1,15 +1,19 @@
 use commands::Commands;
 use dotenv::dotenv;
+use image::DynamicImage;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Database, DatabaseConnection, EntityTrait, QueryFilter, Set,
     prelude::Decimal,
 };
 use std::env;
+use std::io::Cursor;
+use std::sync::Arc;
+use teloxide::types::InputFile;
 use teloxide::{
     RequestError,
     dispatching::{
         DpHandlerDescription,
-        dialogue::{GetChatId, InMemStorage, InMemStorageError},
+        dialogue::{InMemStorage, InMemStorageError},
     },
     prelude::*,
     types::{ChatMemberKind, ChatMemberStatus, InlineKeyboardButton, InlineKeyboardMarkup},
@@ -17,9 +21,11 @@ use teloxide::{
 };
 mod commands;
 mod db;
+mod qr;
 mod state;
 use chrono::Utc;
 use db::{Channel, ChannelModel, User, UserModel};
+use qr::generate_qr_code;
 use state::{PayState, PriceState};
 use thiserror::Error;
 
@@ -43,10 +49,12 @@ async fn main() -> Result<(), BotError> {
     pretty_env_logger::init();
     dotenv().ok();
     log::info!("Starting throw dice bot...");
+    let gate_crypto_address =
+        Arc::new(env::var("GATE_CRYPTO_ADDRESS").expect("GATE_CRYPTO_ADDRESS must be set"));
     let token = env::var("BOT_TOKEN").expect("BOT_TOKEN must be set");
     let pg_user = env::var("POSTGRES_USER").expect("POSTGRES_USER must be set");
     let pg_password = env::var("POSTGRES_PASSWORD").expect("POSTGRES_PASSWORD must be set");
-    let pg_host = env::var("DB_HOST").expect("DB_PORT must be set");
+    let pg_host = env::var("DB_HOST").expect("DB_HOST must be set");
     let pg_port = env::var("DB_PORT").expect("DB_PORT must be set");
     let pg_db = env::var("POSTGRES_DB").expect("POSTGRES_DB must be set");
     let connection_string = format!(
@@ -63,6 +71,7 @@ async fn main() -> Result<(), BotError> {
         .enable_ctrlc_handler()
         .dependencies(dptree::deps![
             db.clone(),
+            gate_crypto_address.clone(),
             InMemStorage::<PriceState>::new(),
             InMemStorage::<PayDialog>::new()
         ])
@@ -132,8 +141,11 @@ fn handler() -> Handler<'static, DependencyMap, Result<(), BotError>, DpHandlerD
             Update::filter_message()
                 .enter_dialogue::<Message, InMemStorage<PriceState>, PriceState>()
                 .branch(
-                    dptree::case![PriceState::PriceDialogueEnding { channel_id, crypto_address }]
-                        .endpoint(handle_end_price_dialog),
+                    dptree::case![PriceState::PriceDialogueEnding {
+                        channel_id,
+                        crypto_address
+                    }]
+                    .endpoint(handle_end_price_dialog),
                 ),
         )
         .branch(
@@ -530,15 +542,37 @@ async fn handle_pay_button(
     q: CallbackQuery,
     dialogue: PayDialog,
     db: DatabaseConnection,
+    gate_crypto_address: Arc<String>,
 ) -> Result<(), BotError> {
     bot.answer_callback_query(q.id).await?;
     let message = q.message.unwrap();
     let chat_id = message.chat().id;
+    let telegram_id = q.from.id.0.try_into().unwrap();
     if let Some(data) = q.data {
         if let Some(channel_id_str) = data.strip_prefix("channel_") {
             if let Ok(channel_id) = channel_id_str.parse::<i64>() {
                 if let Some(channel) = Channel::find_by_id(channel_id).one(&db).await? {
-                    let channel_name = channel.title.clone();
+                    let price = channel.monthly_price.unwrap().try_into().unwrap();
+                    let qr_code: image::ImageBuffer<image::Luma<u8>, Vec<u8>> = generate_qr_code(
+                        gate_crypto_address.to_string(),
+                        price,
+                        telegram_id,
+                        channel_id,
+                    );
+                    // Преобразуем QR в PNG
+                    let mut png_bytes: Vec<u8> = Vec::new();
+                    let dyn_image = DynamicImage::ImageLuma8(qr_code);
+                    let _ = dyn_image.write_to(
+                        &mut Cursor::new(&mut png_bytes),
+                        image::ImageFormat::Png,
+                    ).unwrap();
+
+                    bot.send_photo(
+                        chat_id,
+                        InputFile::memory(png_bytes).file_name("payment_qr.png"),
+                    )
+                    .caption("Please complete the payment using the QR code below. Access will be granted automatically after the payment. Thank you!")
+                    .await?;
                 } else {
                     bot.send_message(chat_id, "Channels not found").await?;
                 }
