@@ -2,6 +2,7 @@ pub mod user;
 pub mod channel;
 pub mod settings;
 pub mod membership;
+pub mod transaction;
 
 pub use user::Entity as User;
 pub use user::ActiveModel as UserModel; 
