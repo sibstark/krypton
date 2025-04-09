@@ -3,6 +3,7 @@ pub mod channel;
 pub mod settings;
 pub mod membership;
 pub mod transaction;
+pub mod invite_link;
 
 pub use user::Entity as User;
 pub use user::ActiveModel as UserModel; 
