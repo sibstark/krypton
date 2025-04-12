@@ -7,9 +7,9 @@ use sea_orm::entity::prelude::*;
 pub struct Model {
     #[sea_orm(primary_key, column_type = "BigInteger")]
     pub id: i64,
-    #[sea_orm(primary_key, column_type = "BigInteger")]
+    #[sea_orm(column_type = "BigInteger")]
     pub user_id: i64,
-    #[sea_orm(primary_key, column_type = "BigInteger")]
+    #[sea_orm(column_type = "BigInteger")]
     pub channel_id: i64,
     #[sea_orm(column_type = "Timestamp")]
     pub expires_at: DateTime<Utc>,

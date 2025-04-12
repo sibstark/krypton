@@ -13,25 +13,25 @@ impl MigrationTrait for Migration {
                     .table(Users::Table)
                     .if_not_exists()
                     .col(
-                        big_integer()
+                        ColumnDef::new(Users::TelegramId)
+                            .big_integer()
                             .not_null()
-                            .primary_key()
-                            .name(Users::TelegramId),
+                            .primary_key(),
                     )
-                    .col(string().not_null().name(Users::Username))
-                    .col(string().null().name(Users::FirstName))
-                    .col(string().null().name(Users::LastName))
+                    .col(ColumnDef::new(Users::Username).string().not_null())
+                    .col(ColumnDef::new(Users::FirstName).string().null())
+                    .col(ColumnDef::new(Users::LastName).string().null())
                     .col(
-                        timestamp()
+                        ColumnDef::new(Users::CreatedAt)
+                            .timestamp()
                             .not_null()
-                            .default(Expr::cust("now()"))
-                            .name(Users::CreatedAt),
+                            .default(Expr::cust("now()")),
                     )
                     .col(
-                        timestamp()
+                        ColumnDef::new(Users::LastActiveAt)
+                            .timestamp()
                             .not_null()
-                            .default(Expr::cust("now()"))
-                            .name(Users::LastActiveAt),
+                            .default(Expr::cust("now()")),
                     )
                     .to_owned(),
             )
@@ -44,37 +44,50 @@ impl MigrationTrait for Migration {
                     .table(Channels::Table)
                     .if_not_exists()
                     .col(
-                        big_integer()
+                        ColumnDef::new(Channels::ChannelId)
+                            .big_integer()
                             .not_null()
-                            .primary_key()
-                            .name(Channels::ChannelId),
-                    )
-                    .col(big_integer().null().name(Channels::LinkedChannelId))
-                    .col(big_integer().not_null().name(Channels::OwnerTelegramId))
-                    .col(string().not_null().name(Channels::Title))
-                    .col(string().null().name(Channels::Description))
-                    .col(decimal().null().name(Channels::MonthlyPrice))
-                    .col(timestamp().not_null().name(Channels::BotAddedAt))
-                    .col(
-                        timestamp()
-                            .not_null()
-                            .default(Expr::cust("now()"))
-                            .name(Channels::CreatedAt),
+                            .primary_key(),
                     )
                     .col(
-                        json()
-                            .not_null()
-                            .default(Expr::val(json!({})))
-                            .name(Channels::Settings),
+                        ColumnDef::new(Channels::LinkedChannelId)
+                            .big_integer()
+                            .null(),
                     )
-                    .col(boolean().not_null().default(true).name(Channels::IsActive))
                     .col(
-                        timestamp()
-                            .not_null()
-                            .default(Expr::cust("now()"))
-                            .name(Channels::LastCheckDate),
+                        ColumnDef::new(Channels::OwnerTelegramId)
+                            .big_integer()
+                            .not_null(),
                     )
-                    .col(string().not_null().name(Channels::CryptoAddress))
+                    .col(ColumnDef::new(Channels::Title).string().not_null())
+                    .col(ColumnDef::new(Channels::Description).string().null())
+                    .col(ColumnDef::new(Channels::MonthlyPrice).decimal().null())
+                    .col(ColumnDef::new(Channels::BotAddedAt).timestamp().not_null())
+                    .col(
+                        ColumnDef::new(Channels::CreatedAt)
+                            .timestamp()
+                            .not_null()
+                            .default(Expr::cust("now()")),
+                    )
+                    .col(
+                        ColumnDef::new(Channels::Settings)
+                            .json()
+                            .not_null()
+                            .default(Expr::val("{}")),
+                    )
+                    .col(
+                        ColumnDef::new(Channels::IsActive)
+                            .boolean()
+                            .not_null()
+                            .default(true),
+                    )
+                    .col(
+                        ColumnDef::new(Channels::LastCheckDate)
+                            .timestamp()
+                            .not_null()
+                            .default(Expr::cust("now()")),
+                    )
+                    .col(ColumnDef::new(Channels::CryptoAddress).string().not_null())
                     .foreign_key(
                         ForeignKey::create()
                             .from(Channels::Table, Channels::OwnerTelegramId)
@@ -90,12 +103,17 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(Settings::Table)
                     .if_not_exists()
-                    .col(string().not_null().primary_key().name(Settings::Key))
                     .col(
-                        json()
+                        ColumnDef::new(Settings::Key)
+                            .string()
                             .not_null()
-                            .default(Expr::val(json!({})))
-                            .name(Settings::Settings),
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(Settings::Settings)
+                            .json()
+                            .not_null()
+                            .default("{}"),
                     )
                     .to_owned(),
             )
@@ -107,17 +125,24 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(InviteLinks::Table)
                     .if_not_exists()
-                    .col(big_integer().not_null().name(InviteLinks::Id))
-                    .col(big_integer().not_null().name(InviteLinks::UserId))
-                    .col(big_integer().not_null().name(InviteLinks::ChannelId))
-                    .col(timestamp().not_null().name(InviteLinks::ExpiresAt))
-                    .col(boolean().not_null().name(InviteLinks::Used))
-                    .primary_key(
-                        Index::create()
-                            .col(InviteLinks::Id)
-                            .col(InviteLinks::UserId)
-                            .col(InviteLinks::ChannelId),
+                    .col(
+                        ColumnDef::new(InviteLinks::Id)
+                            .big_integer()
+                            .not_null()
+                            .primary_key(),
                     )
+                    .col(ColumnDef::new(InviteLinks::UserId).big_integer().not_null())
+                    .col(
+                        ColumnDef::new(InviteLinks::ChannelId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(InviteLinks::ExpiresAt)
+                            .timestamp()
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(InviteLinks::Used).boolean().not_null())
                     .foreign_key(
                         ForeignKey::create()
                             .from(InviteLinks::Table, InviteLinks::UserId)
@@ -138,38 +163,54 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(PaymentTransactions::Table)
                     .if_not_exists()
-                    .col(big_integer().not_null().name(PaymentTransactions::Id))
                     .col(
-                        big_integer()
+                        ColumnDef::new(PaymentTransactions::Id)
+                            .big_integer()
                             .not_null()
-                            .name(PaymentTransactions::TelegramId),
+                            .auto_increment()
+                            .primary_key(),
                     )
                     .col(
-                        big_integer()
-                            .not_null()
-                            .name(PaymentTransactions::ChannelId),
+                        ColumnDef::new(PaymentTransactions::TelegramId)
+                            .big_integer()
+                            .not_null(),
                     )
-                    .col(decimal().not_null().name(PaymentTransactions::Price))
-                    .col(string().not_null().name(PaymentTransactions::Currency))
-                    .col(string().not_null().name(PaymentTransactions::Status))
                     .col(
-                        timestamp()
-                            .not_null()
-                            .default(Expr::cust("now()"))
-                            .name(PaymentTransactions::CreatedAt),
+                        ColumnDef::new(PaymentTransactions::ChannelId)
+                            .big_integer()
+                            .not_null(),
                     )
-                    .col(timestamp().null().name(PaymentTransactions::CompleatedAt))
                     .col(
-                        json()
-                            .not_null()
-                            .default(Expr::val(json!({})))
-                            .name(PaymentTransactions::TransactionData),
+                        ColumnDef::new(PaymentTransactions::Price)
+                            .decimal()
+                            .not_null(),
                     )
-                    .primary_key(
-                        Index::create()
-                            .col(PaymentTransactions::Id)
-                            .col(PaymentTransactions::TelegramId)
-                            .col(PaymentTransactions::ChannelId),
+                    .col(
+                        ColumnDef::new(PaymentTransactions::Currency)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PaymentTransactions::Status)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PaymentTransactions::CreatedAt)
+                            .timestamp()
+                            .not_null()
+                            .default(Expr::cust("now()")),
+                    )
+                    .col(
+                        ColumnDef::new(PaymentTransactions::CompleatedAt)
+                            .timestamp()
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(PaymentTransactions::TransactionData)
+                            .json()
+                            .not_null()
+                            .default(Expr::val("{}")),
                     )
                     .foreign_key(
                         ForeignKey::create()
@@ -191,35 +232,43 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(ChannelMemberships::Table)
                     .if_not_exists()
-                    .col(big_integer().not_null().name(ChannelMemberships::ChannelId))
                     .col(
-                        big_integer()
-                            .not_null()
-                            .name(ChannelMemberships::TelegramId),
+                        ColumnDef::new(ChannelMemberships::ChannelId)
+                            .big_integer()
+                            .not_null(),
                     )
                     .col(
-                        timestamp()
-                            .not_null()
-                            .name(ChannelMemberships::SubscriptionStart),
+                        ColumnDef::new(ChannelMemberships::TelegramId)
+                            .big_integer()
+                            .not_null(),
                     )
                     .col(
-                        timestamp()
-                            .not_null()
-                            .name(ChannelMemberships::SubscriptionEnd),
+                        ColumnDef::new(ChannelMemberships::SubscriptionStart)
+                            .timestamp()
+                            .not_null(),
                     )
                     .col(
-                        json()
-                            .not_null()
-                            .default(Expr::val(json!([])))
-                            .name(ChannelMemberships::PaymentHistory),
+                        ColumnDef::new(ChannelMemberships::SubscriptionEnd)
+                            .timestamp()
+                            .not_null(),
                     )
                     .col(
-                        json()
+                        ColumnDef::new(ChannelMemberships::PaymentHistory)
+                            .json()
                             .not_null()
-                            .default(Expr::val(json!([])))
-                            .name(ChannelMemberships::NotificationsSent),
+                            .default(Expr::val("[]")),
                     )
-                    .col(boolean().not_null().name(ChannelMemberships::Status))
+                    .col(
+                        ColumnDef::new(ChannelMemberships::NotificationsSent)
+                            .json()
+                            .not_null()
+                            .default(Expr::val("[]")),
+                    )
+                    .col(
+                        ColumnDef::new(ChannelMemberships::Status)
+                            .boolean()
+                            .not_null(),
+                    )
                     .primary_key(
                         Index::create()
                             .col(ChannelMemberships::ChannelId)

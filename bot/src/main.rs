@@ -52,15 +52,7 @@ async fn main() -> Result<(), BotError> {
     let gate_crypto_address =
         Arc::new(env::var("GATE_CRYPTO_ADDRESS").expect("GATE_CRYPTO_ADDRESS must be set"));
     let token = env::var("BOT_TOKEN").expect("BOT_TOKEN must be set");
-    let pg_user = env::var("POSTGRES_USER").expect("POSTGRES_USER must be set");
-    let pg_password = env::var("POSTGRES_PASSWORD").expect("POSTGRES_PASSWORD must be set");
-    let pg_host = env::var("DB_HOST").expect("DB_HOST must be set");
-    let pg_port = env::var("DB_PORT").expect("DB_PORT must be set");
-    let pg_db = env::var("POSTGRES_DB").expect("POSTGRES_DB must be set");
-    let connection_string = format!(
-        "postgres://{}:{}@{}:{}/{}",
-        pg_user, pg_password, pg_host, pg_port, pg_db
-    );
+    let connection_string = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     log::info!("Establishing db connection...");
 
     let db: DatabaseConnection = Database::connect(connection_string).await?;
