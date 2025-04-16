@@ -22,12 +22,14 @@ use teloxide::{
 mod commands;
 mod db;
 mod qr;
+mod ton;
 mod state;
 use chrono::Utc;
 use db::{Channel, ChannelModel, User, UserModel};
 use qr::generate_qr_code;
 use state::{PayState, PriceState};
 use thiserror::Error;
+use ton::address_validator::is_valid_address;
 
 type PriceDialogue = Dialogue<PriceState, InMemStorage<PriceState>>;
 type PayDialog = Dialogue<PayState, InMemStorage<PayState>>;
@@ -127,17 +129,6 @@ fn handler() -> Handler<'static, DependencyMap, Result<(), BotError>, DpHandlerD
                 .branch(
                     dptree::case![PriceState::EnterCryptoAddress { channel_id }]
                         .endpoint(handle_crypto_address_input),
-                ),
-        )
-        .branch(
-            Update::filter_message()
-                .enter_dialogue::<Message, InMemStorage<PriceState>, PriceState>()
-                .branch(
-                    dptree::case![PriceState::PriceDialogueEnding {
-                        channel_id,
-                        crypto_address
-                    }]
-                    .endpoint(handle_end_price_dialog),
                 ),
         )
         .branch(
@@ -391,14 +382,14 @@ async fn handle_price_input(
             if let Some(channel) = channel {
                 let date_now = Utc::now().into();
                 let mut channel_model: ChannelModel = channel.into();
-                channel_model.monthly_price = Set(Some(Decimal::from_f64_retain(price).unwrap()));
+                let monthly_price = Decimal::from_f64_retain(price).unwrap().round_dp(2);
+                channel_model.monthly_price = Set(Some(monthly_price));
                 channel_model.last_check_date = Set(date_now);
                 channel_model.update(&db).await?;
                 bot.send_message(
                     msg.chat.id,
                     format!(
-                        "✅ Price for channel \"{}\" has been set to USD {:.2} per month.
-                        Enter crypto address for payment:",
+                        "✅ Price for channel \"{}\" has been set to USD {:.2} per month. Enter crypto address for payment:",
                         channel_name, price
                     ),
                 )
@@ -430,50 +421,21 @@ async fn handle_crypto_address_input(
     // Try to parse the price from the message
     if let Some(text) = msg.text() {
         let crypto_address = text.to_string();
-        let channel: Option<db::channel::Model> = Channel::find_by_id(channel_id).one(&db).await?;
-        if let Some(channel) = channel {
-            let title = channel.title.clone();
-            let date_now = Utc::now().into();
-            let mut channel_model: ChannelModel = channel.into();
-            channel_model.last_check_date = Set(date_now);
-            channel_model.crypto_address = Set(crypto_address.clone());
-            channel_model.update(&db).await?;
-            bot.send_message(
-                msg.chat.id,
-                format!(
-                    "✅ Channel \"{}\" has been set {} crypto address for payment.",
-                    title, crypto_address
-                ),
-            )
-            .await?;
-            dialogue
-                .update(PriceState::PriceDialogueEnding {
-                    channel_id,
-                    crypto_address,
-                })
+        if !is_valid_address(&crypto_address) { 
+            bot.send_message(msg.chat.id, "Please enter a valid crypto address:")
                 .await?;
             return Ok(());
         }
-    } else {
-        bot.send_message(msg.chat.id, "Please enter a crypto address:")
-            .await?;
-    }
-    Ok(())
-}
-
-async fn handle_end_price_dialog(
-    bot: Bot,
-    msg: Message,
-    dialogue: PriceDialogue,
-    (channel_id, crypto_address): (i64, String),
-    db: DatabaseConnection,
-) -> Result<(), BotError> {
-    // Try to parse the price from the message
-    let channel: Option<db::channel::Model> = Channel::find_by_id(channel_id).one(&db).await?;
-    if let Some(channel) = channel {
-        let title = channel.title.clone();
-        let monthly_price = channel.monthly_price.clone().unwrap();
-        bot.send_message(
+        let channel: Option<db::channel::Model> = Channel::find_by_id(channel_id).one(&db).await?;
+        if let Some(channel) = channel {
+            let title = channel.title.clone();
+            let monthly_price = channel.monthly_price.clone().unwrap();
+            let date_now = Utc::now().into();
+            let mut channel_model: ChannelModel = channel.into();
+            channel_model.last_check_date = Set(date_now);
+            channel_model.crypto_address = Set(Some(crypto_address.clone()));
+            channel_model.update(&db).await?;
+            bot.send_message(
             msg.chat.id,
             format!(
                 "✅ Channel \"{}\" has USD {:.2} per month price and {} crypto address for payment.",
@@ -481,7 +443,12 @@ async fn handle_end_price_dialog(
             ),
         )
         .await?;
-        dialogue.exit().await?;
+            dialogue.exit().await?;
+            return Ok(());
+        }
+    } else {
+        bot.send_message(msg.chat.id, "Please enter a crypto address:")
+            .await?;
     }
     Ok(())
 }
@@ -554,10 +521,9 @@ async fn handle_pay_button(
                     // Преобразуем QR в PNG
                     let mut png_bytes: Vec<u8> = Vec::new();
                     let dyn_image = DynamicImage::ImageLuma8(qr_code);
-                    let _ = dyn_image.write_to(
-                        &mut Cursor::new(&mut png_bytes),
-                        image::ImageFormat::Png,
-                    ).unwrap();
+                    let _ = dyn_image
+                        .write_to(&mut Cursor::new(&mut png_bytes), image::ImageFormat::Png)
+                        .unwrap();
 
                     bot.send_photo(
                         chat_id,

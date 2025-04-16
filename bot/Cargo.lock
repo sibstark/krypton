@@ -318,6 +318,7 @@ dependencies = [
  "teloxide",
  "thiserror 2.0.12",
  "tokio",
+ "ton-address",
  "urlencoding",
 ]
 
@@ -3517,6 +3518,18 @@ dependencies = [
  "serde_spanned",
  "toml_datetime",
  "winnow",
+]
+
+[[package]]
+name = "ton-address"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "21c1e98462cb0da1e4b663ceb261abdf2b9ce12c0fe870fdc6a5f9ff0ecb814c"
+dependencies = [
+ "base64 0.22.1",
+ "crc",
+ "hex",
+ "thiserror 2.0.12",
 ]
 
 [[package]]

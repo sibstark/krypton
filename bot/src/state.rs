@@ -10,10 +10,6 @@ pub enum PriceState {
     },
     EnterCryptoAddress {
         channel_id: i64
-    },
-    PriceDialogueEnding {
-        channel_id: i64,
-        crypto_address: String
     }
 }
 

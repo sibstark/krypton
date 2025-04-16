@@ -23,13 +23,13 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(Users::LastName).string().null())
                     .col(
                         ColumnDef::new(Users::CreatedAt)
-                            .timestamp()
+                            .timestamp_with_time_zone()
                             .not_null()
                             .default(Expr::cust("now()")),
                     )
                     .col(
                         ColumnDef::new(Users::LastActiveAt)
-                            .timestamp()
+                            .timestamp_with_time_zone()
                             .not_null()
                             .default(Expr::cust("now()")),
                     )
@@ -62,10 +62,10 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(Channels::Title).string().not_null())
                     .col(ColumnDef::new(Channels::Description).string().null())
                     .col(ColumnDef::new(Channels::MonthlyPrice).decimal().null())
-                    .col(ColumnDef::new(Channels::BotAddedAt).timestamp().not_null())
+                    .col(ColumnDef::new(Channels::BotAddedAt).timestamp_with_time_zone().not_null())
                     .col(
                         ColumnDef::new(Channels::CreatedAt)
-                            .timestamp()
+                            .timestamp_with_time_zone()
                             .not_null()
                             .default(Expr::cust("now()")),
                     )
@@ -83,11 +83,11 @@ impl MigrationTrait for Migration {
                     )
                     .col(
                         ColumnDef::new(Channels::LastCheckDate)
-                            .timestamp()
+                            .timestamp_with_time_zone()
                             .not_null()
                             .default(Expr::cust("now()")),
                     )
-                    .col(ColumnDef::new(Channels::CryptoAddress).string().not_null())
+                    .col(ColumnDef::new(Channels::CryptoAddress).string().null())
                     .foreign_key(
                         ForeignKey::create()
                             .from(Channels::Table, Channels::OwnerTelegramId)
@@ -139,7 +139,7 @@ impl MigrationTrait for Migration {
                     )
                     .col(
                         ColumnDef::new(InviteLinks::ExpiresAt)
-                            .timestamp()
+                            .timestamp_with_time_zone()
                             .not_null(),
                     )
                     .col(ColumnDef::new(InviteLinks::Used).boolean().not_null())
@@ -197,13 +197,13 @@ impl MigrationTrait for Migration {
                     )
                     .col(
                         ColumnDef::new(PaymentTransactions::CreatedAt)
-                            .timestamp()
+                            .timestamp_with_time_zone()
                             .not_null()
                             .default(Expr::cust("now()")),
                     )
                     .col(
                         ColumnDef::new(PaymentTransactions::CompleatedAt)
-                            .timestamp()
+                            .timestamp_with_time_zone()
                             .null(),
                     )
                     .col(
@@ -244,12 +244,12 @@ impl MigrationTrait for Migration {
                     )
                     .col(
                         ColumnDef::new(ChannelMemberships::SubscriptionStart)
-                            .timestamp()
+                            .timestamp_with_time_zone()
                             .not_null(),
                     )
                     .col(
                         ColumnDef::new(ChannelMemberships::SubscriptionEnd)
-                            .timestamp()
+                            .timestamp_with_time_zone()
                             .not_null(),
                     )
                     .col(
