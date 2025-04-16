@@ -22,17 +22,18 @@ use teloxide::{
 mod commands;
 mod db;
 mod qr;
-mod ton;
 mod state;
+mod ton;
 use chrono::Utc;
 use db::{Channel, ChannelModel, User, UserModel};
 use qr::generate_qr_code;
-use state::{PayState, PriceState};
+use state::{PayState, PriceState, ShowInfoState};
 use thiserror::Error;
 use ton::address_validator::is_valid_address;
 
 type PriceDialogue = Dialogue<PriceState, InMemStorage<PriceState>>;
 type PayDialog = Dialogue<PayState, InMemStorage<PayState>>;
+type InfoDialog = Dialogue<ShowInfoState, InMemStorage<ShowInfoState>>;
 
 #[derive(Debug, Error)]
 pub enum BotError {
@@ -67,7 +68,8 @@ async fn main() -> Result<(), BotError> {
             db.clone(),
             gate_crypto_address.clone(),
             InMemStorage::<PriceState>::new(),
-            InMemStorage::<PayDialog>::new()
+            InMemStorage::<ShowInfoState>::new(),
+            InMemStorage::<PayState>::new()
         ])
         .build()
         .dispatch()
@@ -99,6 +101,11 @@ fn handler() -> Handler<'static, DependencyMap, Result<(), BotError>, DpHandlerD
                         .endpoint(start_price_dialogue),
                 )
                 .branch(
+                    dptree::case![Commands::Info]
+                        .enter_dialogue::<Message, InMemStorage<ShowInfoState>, ShowInfoState>()
+                        .endpoint(start_info_dialogue),
+                )
+                .branch(
                     dptree::case![Commands::Pay]
                         .enter_dialogue::<Message, InMemStorage<PayState>, PayState>()
                         .endpoint(start_pay_dialogue),
@@ -110,6 +117,14 @@ fn handler() -> Handler<'static, DependencyMap, Result<(), BotError>, DpHandlerD
                 .enter_dialogue::<CallbackQuery, InMemStorage<PriceState>, PriceState>()
                 .branch(
                     dptree::case![PriceState::SelectChannel].endpoint(handle_channel_selection),
+                ),
+        )
+        .branch(
+            Update::filter_callback_query()
+                .enter_dialogue::<CallbackQuery, InMemStorage<ShowInfoState>, ShowInfoState>()
+                .branch(
+                    dptree::case![ShowInfoState::SelectChannel]
+                        .endpoint(handle_info_channel_selection),
                 ),
         )
         .branch(
@@ -421,7 +436,7 @@ async fn handle_crypto_address_input(
     // Try to parse the price from the message
     if let Some(text) = msg.text() {
         let crypto_address = text.to_string();
-        if !is_valid_address(&crypto_address) { 
+        if !is_valid_address(&crypto_address) {
             bot.send_message(msg.chat.id, "Please enter a valid crypto address:")
                 .await?;
             return Ok(());
@@ -440,9 +455,7 @@ async fn handle_crypto_address_input(
             format!(
                 "✅ Channel \"{}\" has USD {:.2} per month price and {} crypto address for payment.",
                 title, monthly_price, crypto_address
-            ),
-        )
-        .await?;
+            )).await?;
             dialogue.exit().await?;
             return Ok(());
         }
@@ -460,6 +473,89 @@ async fn start_pay_dialogue(bot: Bot, msg: Message, dialogue: PayDialog) -> Resu
     )
     .await?;
     dialogue.update(PayState::SelectChannel).await?;
+    Ok(())
+}
+
+async fn start_info_dialogue(
+    bot: Bot,
+    msg: Message,
+    db: DatabaseConnection,
+    dialogue: InfoDialog,
+) -> Result<(), BotError> {
+    let owner_id = msg.from.unwrap().id;
+    let channels: Vec<db::channel::Model> = Channel::find()
+        .filter(db::channel::Column::OwnerTelegramId.eq(owner_id.0))
+        .all(&db)
+        .await?;
+    let channels_count = channels.len();
+    if channels_count == 0 {
+        bot.send_message(msg.chat.id, "You have no channel ownhership.")
+            .await?;
+        dialogue.exit().await?;
+        return Ok(());
+    }
+    let buttons: Vec<Vec<InlineKeyboardButton>> = channels
+        .iter()
+        .map(|c| {
+            let channel_name = c.title.clone();
+            let callback_data = format!("channel_{}", c.channel_id);
+            vec![InlineKeyboardButton::callback(channel_name, callback_data)]
+        })
+        .collect();
+    let keyboard = InlineKeyboardMarkup::new(buttons);
+    bot.send_message(msg.chat.id, "Select a channel: ")
+        .reply_markup(keyboard)
+        .await?;
+    dialogue.update(ShowInfoState::SelectChannel).await?;
+    Ok(())
+}
+
+async fn handle_info_channel_selection(
+    bot: Bot,
+    q: CallbackQuery,
+    db: DatabaseConnection,
+    dialogue: InfoDialog,
+) -> Result<(), BotError> {
+    bot.answer_callback_query(q.id).await?;
+    let message = q.message.unwrap();
+    let chat_id = message.chat().id;
+
+    if let Some(data) = q.data {
+        if let Some(channel_id_str) = data.strip_prefix("channel_") {
+            if let Ok(channel_id) = channel_id_str.parse::<i64>() {
+                if let Some(channel) = Channel::find_by_id(channel_id).one(&db).await? {
+                    let monthly_price = channel.monthly_price.unwrap();
+                    let title = channel.title.clone();
+                    let crypto_address = channel.crypto_address.clone();
+                    let message_id = message.id();
+                    bot.delete_message(chat_id, message_id).await?;
+                    match  crypto_address {
+                        Some(address) => {
+                            bot.send_message(
+                                chat_id,
+                                format!(
+                                    "✅ Channel \"{}\" has USD {:.2} per month price and {} crypto address for payment.",
+                                    title, monthly_price, address
+                                ),
+                            ).await?;
+                        }
+                        None => {
+                            bot.send_message(
+                                chat_id,
+                                format!(
+                                    "✅ Channel \"{}\" has USD {:.2} per month price and no crypto address for payment.",
+                                    title, monthly_price
+                                ),
+                            ).await?;
+                        }
+                    }
+                    dialogue.exit().await?;
+                } else {
+                    bot.send_message(chat_id, "Channels not found").await?;
+                }
+            }
+        }
+    }
     Ok(())
 }
 

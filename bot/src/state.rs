@@ -25,3 +25,11 @@ pub enum PayState {
     },
     PaymentStatus
 }
+
+// Define states for the second dialogue (ShowInfoState)
+#[derive(Clone, Default)]
+pub enum ShowInfoState {
+    #[default]
+    Start,
+    SelectChannel
+}

@@ -9,6 +9,8 @@ pub enum Commands {
     Help,
     #[command(description="Set price for owned Telegram channel")]
     SetPrice,
+    #[command(description="Show info about owned Telegram channel")]
+    Info,
     #[command(description="Pay for channel subscription")]
     Pay
 }
