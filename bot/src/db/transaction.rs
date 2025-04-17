@@ -2,7 +2,6 @@ use chrono::{DateTime, Utc};
 use sea_orm::DeriveEntityModel;
 use sea_orm::entity::prelude::*;
 use serde_json::Value;
-
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "payment_transactions")]
 pub struct Model {
@@ -21,9 +20,13 @@ pub struct Model {
     #[sea_orm(column_type = "Timestamp", default_value = "now()")]
     pub created_at: DateTime<Utc>,
     #[sea_orm(column_type = "Timestamp")]
-    pub compleated_at: Option<DateTime<Utc>>,
+    pub completed_at: Option<DateTime<Utc>>,
     #[sea_orm(column_type = "Json", default_value = "{}")]
     pub transaction_data: Value,
+    #[sea_orm(column_type = "Text")]
+    pub wallet_address: String,
+    #[sea_orm(column_type = "BigInteger")]
+    pub message_id: i64
 }
 
 #[derive(Copy, Clone, Debug, EnumIter)]

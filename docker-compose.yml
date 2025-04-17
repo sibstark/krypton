@@ -1,4 +1,20 @@
 services:
+  dragonfly:
+    container_name: dragonfly
+    image: 'docker.dragonflydb.io/dragonflydb/dragonfly:v1.28.2'
+    ulimits:
+      memlock: -1
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./dragonflydata:/data
+    command:
+      [
+        "--dir=/data",
+        "--requirepass=${DRAGONFLY_PASSWORD}",
+        "--bind=0.0.0.0"
+      ]
+    restart: always
   db:
     build:
       context: ./db
@@ -26,6 +42,8 @@ volumes:
   pgdata:
     driver: local
   pgadmin:
+    driver: local
+  dragonflydata:
     driver: local
 networks:
   pgnetwork:

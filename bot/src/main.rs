@@ -602,11 +602,13 @@ async fn handle_pay_button(
     bot.answer_callback_query(q.id).await?;
     let message = q.message.unwrap();
     let chat_id = message.chat().id;
+    let message_id = message.id();
     let telegram_id = q.from.id.0.try_into().unwrap();
     if let Some(data) = q.data {
         if let Some(channel_id_str) = data.strip_prefix("channel_") {
             if let Ok(channel_id) = channel_id_str.parse::<i64>() {
                 if let Some(channel) = Channel::find_by_id(channel_id).one(&db).await? {
+                    bot.delete_message(chat_id, message_id).await?;
                     let price = channel.monthly_price.unwrap().try_into().unwrap();
                     let qr_code: image::ImageBuffer<image::Luma<u8>, Vec<u8>> = generate_qr_code(
                         gate_crypto_address.to_string(),
@@ -628,7 +630,7 @@ async fn handle_pay_button(
                     .caption("Please complete the payment using the QR code below. Access will be granted automatically after the payment. Thank you!")
                     .await?;
                 } else {
-                    bot.send_message(chat_id, "Channels not found").await?;
+                    bot.send_message(chat_id, "Channel not found").await?;
                 }
             }
         }
