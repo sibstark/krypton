@@ -20,7 +20,6 @@ use teloxide::{
     utils::command::BotCommands,
 };
 mod commands;
-mod db;
 mod qr;
 mod state;
 mod ton;
