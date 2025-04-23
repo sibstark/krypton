@@ -23,8 +23,9 @@ mod commands;
 mod qr;
 mod state;
 mod ton;
+use events;
 use chrono::Utc;
-use db::{Channel, ChannelModel, User, UserModel};
+use db::{Channel, ChannelModel, Transaction, TransactionModel, User, UserModel};
 use qr::generate_qr_code;
 use state::{PayState, PriceState, ShowInfoState};
 use thiserror::Error;
@@ -528,7 +529,7 @@ async fn handle_info_channel_selection(
                     let crypto_address = channel.crypto_address.clone();
                     let message_id = message.id();
                     bot.delete_message(chat_id, message_id).await?;
-                    match  crypto_address {
+                    match crypto_address {
                         Some(address) => {
                             bot.send_message(
                                 chat_id,
@@ -607,21 +608,36 @@ async fn handle_pay_button(
         if let Some(channel_id_str) = data.strip_prefix("channel_") {
             if let Ok(channel_id) = channel_id_str.parse::<i64>() {
                 if let Some(channel) = Channel::find_by_id(channel_id).one(&db).await? {
+                    if channel.crypto_address.is_none() {
+                        bot.send_message(chat_id, "Unfortunately, current channel doesn't have a valid crypto address valid")
+                            .await?;
+                        return Ok(());
+                    }
                     bot.delete_message(chat_id, message_id).await?;
+                    let monthly_price = channel.monthly_price.unwrap();
+                    let wallet_address = channel.crypto_address.unwrap();
                     let price = channel.monthly_price.unwrap().try_into().unwrap();
-                    let qr_code: image::ImageBuffer<image::Luma<u8>, Vec<u8>> = generate_qr_code(
-                        gate_crypto_address.to_string(),
-                        price,
-                        telegram_id,
-                        channel_id,
-                    );
+                    let date_now = Utc::now().into();
+                    let transaction = TransactionModel {
+                        telegram_id: Set(telegram_id),
+                        channel_id: Set(channel_id),
+                        price: Set(monthly_price),
+                        status: Set("active".to_string()),
+                        created_at: Set(date_now),
+                        wallet_address: Set(wallet_address),
+                        message_id: Set(message_id.0.into()),
+                        ..Default::default()
+                    };
+                    let insert_result = transaction.insert(&db).await?;
+                    let transaction_id = insert_result.id;
+                    let qr_code: image::ImageBuffer<image::Luma<u8>, Vec<u8>> =
+                        generate_qr_code(gate_crypto_address.to_string(), price, transaction_id);
                     // Преобразуем QR в PNG
                     let mut png_bytes: Vec<u8> = Vec::new();
                     let dyn_image = DynamicImage::ImageLuma8(qr_code);
                     let _ = dyn_image
                         .write_to(&mut Cursor::new(&mut png_bytes), image::ImageFormat::Png)
                         .unwrap();
-
                     bot.send_photo(
                         chat_id,
                         InputFile::memory(png_bytes).file_name("payment_qr.png"),

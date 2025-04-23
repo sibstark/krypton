@@ -7,16 +7,15 @@ use urlencoding;
 pub fn generate_qr_code(
     contract_address: String,
     amount: f64,
-    telegram_id: i64,
-    channel_id: i64,
+    transaction_id: i64
 ) -> ImageBuffer<Luma<u8>, Vec<u8>> {
-    let raw_payload = format!("telegram_id={}&channel_id={}", telegram_id, channel_id);
+    let raw_payload = format!("transaction_id={}", transaction_id);
 
     // Кодируем payload в base64
     let payload_base64 = STANDARD.encode(raw_payload.as_bytes());
 
     // Комментарий (опционально)
-    let text = format!("Fee Split Transfer for user {}", telegram_id);
+    let text = format!("Fee Split Transfer for Krypton transaction {}", transaction_id);
 
     // Финальный deeplink
     let ton_link = format!(

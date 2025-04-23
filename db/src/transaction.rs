@@ -2,6 +2,8 @@ use chrono::{DateTime, Utc};
 use sea_orm::DeriveEntityModel;
 use sea_orm::entity::prelude::*;
 use serde_json::Value;
+
+// status = active, failed, completed
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "payment_transactions")]
 pub struct Model {
