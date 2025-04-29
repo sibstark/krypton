@@ -23,13 +23,14 @@ mod commands;
 mod qr;
 mod state;
 mod ton;
-use events;
+use events::event::{send_payment_event, PaymentEvent};
 use chrono::Utc;
 use db::{Channel, ChannelModel, Transaction, TransactionModel, User, UserModel};
 use qr::generate_qr_code;
 use state::{PayState, PriceState, ShowInfoState};
 use thiserror::Error;
 use ton::address_validator::is_valid_address;
+use redis::{Client, aio::MultiplexedConnection};
 
 type PriceDialogue = Dialogue<PriceState, InMemStorage<PriceState>>;
 type PayDialog = Dialogue<PayState, InMemStorage<PayState>>;
@@ -55,10 +56,14 @@ async fn main() -> Result<(), BotError> {
     let gate_crypto_address =
         Arc::new(env::var("GATE_CRYPTO_ADDRESS").expect("GATE_CRYPTO_ADDRESS must be set"));
     let token = env::var("BOT_TOKEN").expect("BOT_TOKEN must be set");
+    let dragonfly_password = env::var("DRAGONFLY_PASSWORD").expect("DRAGONFLY_PASSWORD must be set");
     let connection_string = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     log::info!("Establishing db connection...");
+    
 
     let db: DatabaseConnection = Database::connect(connection_string).await?;
+    let client = Client::open(format!("redis://:{}@127.0.0.1:6379", dragonfly_password))?;
+    let manager = client.get_multiplexed_tokio_connection().await?;
     log::info!("Db connection esteblished!");
     let bot = Bot::new(token);
 
@@ -67,6 +72,7 @@ async fn main() -> Result<(), BotError> {
         .dependencies(dptree::deps![
             db.clone(),
             gate_crypto_address.clone(),
+            manager.clone(),
             InMemStorage::<PriceState>::new(),
             InMemStorage::<ShowInfoState>::new(),
             InMemStorage::<PayState>::new()
@@ -598,6 +604,7 @@ async fn handle_pay_button(
     dialogue: PayDialog,
     db: DatabaseConnection,
     gate_crypto_address: Arc<String>,
+    redis_manager: MultiplexedConnection
 ) -> Result<(), BotError> {
     bot.answer_callback_query(q.id).await?;
     let message = q.message.unwrap();
@@ -626,10 +633,19 @@ async fn handle_pay_button(
                         created_at: Set(date_now),
                         wallet_address: Set(wallet_address),
                         message_id: Set(message_id.0.into()),
+                        chat_id: Set(chat_id.0),
                         ..Default::default()
                     };
                     let insert_result = transaction.insert(&db).await?;
                     let transaction_id = insert_result.id;
+                    let event = PaymentEvent{
+                        transaction_id,
+                        telegram_id,
+                        channel_id,
+                        chat_id: chat_id.0,
+                        price: monthly_price,
+                    };
+                    send_payment_event(&event, &redis_manager);
                     let qr_code: image::ImageBuffer<image::Luma<u8>, Vec<u8>> =
                         generate_qr_code(gate_crypto_address.to_string(), price, transaction_id);
                     // Преобразуем QR в PNG

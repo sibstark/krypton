@@ -13,6 +13,8 @@ pub struct Model {
     pub telegram_id: i64,
     #[sea_orm(column_type = "BigInteger")]
     pub channel_id: i64,
+    #[sea_orm(column_type = "BigInteger")]
+    pub chat_id: i64,
     #[sea_orm(column_type = "Decimal(None)")]
     pub price: Decimal,
     #[sea_orm(column_type = "Text")]

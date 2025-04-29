@@ -1,4 +1,5 @@
-use redis::{AsyncCommands, aio::MultiplexedConnection};
+use redis::AsyncCommands;
+use redis::aio::MultiplexedConnection;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -8,12 +9,13 @@ pub struct PaymentEvent {
     pub transaction_id: i64,
     pub telegram_id: i64,
     pub channel_id: i64,
+    pub chat_id: i64,
     pub price: Decimal,
 }
 
 pub async fn send_payment_event(
     event: &PaymentEvent,
-    con: &mut MultiplexedConnection,
+    con: &MultiplexedConnection,
 ) -> redis::RedisResult<()> {
     let payload = serde_json::to_string(event).unwrap();
     let _: i64 = con.lpush("pending_payments", payload).await?;
