@@ -30,7 +30,7 @@ use qr::generate_qr_code;
 use state::{PayState, PriceState, ShowInfoState};
 use thiserror::Error;
 use ton::address_validator::is_valid_address;
-use redis::{Client, aio::MultiplexedConnection};
+use redis::{Client, aio::MultiplexedConnection, RedisError};
 
 type PriceDialogue = Dialogue<PriceState, InMemStorage<PriceState>>;
 type PayDialog = Dialogue<PayState, InMemStorage<PayState>>;
@@ -46,6 +46,8 @@ pub enum BotError {
 
     #[error("Dialog API error: {0}")]
     InMemStorage(#[from] InMemStorageError),
+    #[error("Redis error: {0}")]
+    Redis(#[from] RedisError),
 }
 
 #[tokio::main]
@@ -604,7 +606,7 @@ async fn handle_pay_button(
     dialogue: PayDialog,
     db: DatabaseConnection,
     gate_crypto_address: Arc<String>,
-    redis_manager: MultiplexedConnection
+    mut redis_manager: MultiplexedConnection
 ) -> Result<(), BotError> {
     bot.answer_callback_query(q.id).await?;
     let message = q.message.unwrap();
@@ -631,7 +633,7 @@ async fn handle_pay_button(
                         price: Set(monthly_price),
                         status: Set("active".to_string()),
                         created_at: Set(date_now),
-                        wallet_address: Set(wallet_address),
+                        wallet_address: Set(wallet_address.clone()),
                         message_id: Set(message_id.0.into()),
                         chat_id: Set(chat_id.0),
                         ..Default::default()
@@ -644,8 +646,9 @@ async fn handle_pay_button(
                         channel_id,
                         chat_id: chat_id.0,
                         price: monthly_price,
+                        wallet_address: wallet_address.clone()
                     };
-                    send_payment_event(&event, &redis_manager);
+                    send_payment_event(&event, &mut redis_manager);
                     let qr_code: image::ImageBuffer<image::Luma<u8>, Vec<u8>> =
                         generate_qr_code(gate_crypto_address.to_string(), price, transaction_id);
                     // Преобразуем QR в PNG

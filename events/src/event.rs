@@ -11,11 +11,12 @@ pub struct PaymentEvent {
     pub channel_id: i64,
     pub chat_id: i64,
     pub price: Decimal,
+    pub wallet_address: String
 }
 
 pub async fn send_payment_event(
     event: &PaymentEvent,
-    con: &MultiplexedConnection,
+    con: &mut MultiplexedConnection,
 ) -> redis::RedisResult<()> {
     let payload = serde_json::to_string(event).unwrap();
     let _: i64 = con.lpush("pending_payments", payload).await?;
