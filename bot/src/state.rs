@@ -18,7 +18,9 @@ pub enum PriceState {
 pub enum PayState {
     #[default]
     Start,
-    SelectChannel,
+    SelectChannel {
+        channel_id: Option<i64>
+    },
     Pay {
         channel_id: i64,
         channel_name: String

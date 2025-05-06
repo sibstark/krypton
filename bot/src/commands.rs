@@ -12,5 +12,5 @@ pub enum Commands {
     #[command(description="Show info about owned Telegram channel")]
     Info,
     #[command(description="Pay for channel subscription")]
-    Pay
+    Pay(String)
 }

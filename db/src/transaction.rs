@@ -35,17 +35,12 @@ pub struct Model {
 
 #[derive(Copy, Clone, Debug, EnumIter)]
 pub enum Relation {
-    Channel,
-    User,
+    Channel
 }
 
 impl RelationTrait for Relation {
     fn def(&self) -> RelationDef {
         match self {
-            Self::User => Entity::belongs_to(super::user::Entity)
-                .from(Column::TelegramId)
-                .to(super::user::Column::TelegramId)
-                .into(),
             Self::Channel => Entity::belongs_to(super::channel::Entity)
                 .from(Column::ChannelId)
                 .to(super::channel::Column::ChannelId)
@@ -57,12 +52,6 @@ impl RelationTrait for Relation {
 impl Related<super::Channel> for Entity {
     fn to() -> RelationDef {
         Relation::Channel.def()
-    }
-}
-
-impl Related<super::User> for Entity {
-    fn to() -> RelationDef {
-        Relation::User.def()
     }
 }
 

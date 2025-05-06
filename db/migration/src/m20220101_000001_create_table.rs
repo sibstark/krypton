@@ -214,11 +214,6 @@ impl MigrationTrait for Migration {
                     )
                     .foreign_key(
                         ForeignKey::create()
-                            .from(PaymentTransactions::Table, PaymentTransactions::TelegramId)
-                            .to(Users::Table, Users::TelegramId),
-                    )
-                    .foreign_key(
-                        ForeignKey::create()
                             .from(PaymentTransactions::Table, PaymentTransactions::ChannelId)
                             .to(Channels::Table, Channels::ChannelId),
                     )
