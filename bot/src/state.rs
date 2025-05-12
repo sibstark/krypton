@@ -1,9 +1,9 @@
 // Define states for the second dialogue (SetPrice)
-#[derive(Clone, Default)]
+#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
 pub enum PriceState {
     #[default]
     Start,
-    SelectChannel,
+    PriceSelectChannel,
     EnterPrice {
         channel_id: i64,
         channel_name: String
@@ -14,7 +14,7 @@ pub enum PriceState {
 }
 
 // Define states for the second dialogue (Pay)
-#[derive(Clone, Default)]
+#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
 pub enum PayState {
     #[default]
     Start,
@@ -29,7 +29,7 @@ pub enum PayState {
 }
 
 // Define states for the second dialogue (ShowInfoState)
-#[derive(Clone, Default)]
+#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
 pub enum ShowInfoState {
     #[default]
     Start,

@@ -15,6 +15,18 @@ services:
         "--bind=0.0.0.0"
       ]
     restart: always
+    networks:
+      - pgnetwork
+  redisinsight:
+    image: redis/redisinsight:latest
+    container_name: redisinsight
+    ports:
+      - "5540:5540"
+    restart: always
+    depends_on:
+      - dragonfly
+    networks:
+      - pgnetwork
   db:
     build:
       context: ./db

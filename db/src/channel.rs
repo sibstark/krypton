@@ -33,7 +33,6 @@ pub struct Model {
     pub crypto_address: Option<String>
 }
 
-
 #[derive(Copy, Clone, Debug, EnumIter)]
 pub enum Relation {
     User
