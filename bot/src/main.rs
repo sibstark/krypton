@@ -1,79 +1,35 @@
-use commands::Commands;
+// mod section;
+mod qr;
+mod ton;
+mod ui;
+//
+
+use chrono::{Utc};
+use db::{Channel, ChannelModel, TransactionModel, User, UserModel};
 use dotenv::dotenv;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Database, DatabaseConnection, EntityTrait, QueryFilter, Set,
     prelude::Decimal,
 };
-use std::convert::Infallible;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 use std::{env, vec};
 use teloxide::dispatching::dialogue::Storage;
 use teloxide::dispatching::dialogue::serializer::{Bincode, Json};
+use teloxide::types::ChatKind;
 use teloxide::{
-    RequestError,
     dispatching::{
         DpHandlerDescription,
-        dialogue::{ErasedStorage, InMemStorageError, RedisStorage, RedisStorageError},
+        dialogue::{ErasedStorage, RedisStorage},
     },
     prelude::*,
     types::{ChatMemberKind, ChatMemberStatus, InlineKeyboardButton, InlineKeyboardMarkup},
     utils::command::BotCommands,
 };
-mod commands;
-mod qr;
-mod state;
-mod ton;
-use chrono::{Utc, format};
-use db::{Channel, ChannelModel, TransactionModel, User, UserModel};
-use state::{PayState, PriceState, ShowInfoState};
-use teloxide::types::ChatKind;
-use thiserror::Error;
 use ton::address_validator::is_valid_address;
+use ui::{Commands, State, UserDialogue, BotError, PaymentGateway, GateCryptoAddress};
 
-type PriceDialogue = Dialogue<PriceState, ErasedStorage<PriceState>>;
-type PayDialog = Dialogue<PayState, ErasedStorage<PayState>>;
-type InfoDialog = Dialogue<ShowInfoState, ErasedStorage<ShowInfoState>>;
-
-type PriceDialogueStorage = std::sync::Arc<ErasedStorage<PriceState>>;
-type PayDialogStorage = std::sync::Arc<ErasedStorage<PayState>>;
-type InfoDialogStorage = std::sync::Arc<ErasedStorage<ShowInfoState>>;
-
-#[derive(Debug, Error)]
-pub enum BotError {
-    #[error("Database error: {0}")]
-    Database(#[from] sea_orm::DbErr),
-
-    #[error("Telegram API error: {0}")]
-    Teloxide(#[from] RequestError),
-
-    #[error("Dialog API error: {0}")]
-    InMemStorage(#[from] InMemStorageError),
-
-    #[error("RedisStorage error: {0}")]
-    RedisStorage(#[from] RedisStorageError<Infallible>),
-
-    #[error("RedisStorage error: {0}")]
-    ErasedStorage(#[from] Box<dyn std::error::Error + Send + Sync>),
-}
-
-#[derive(Clone)]
-struct GateCryptoAddress(pub Arc<String>);
-
-#[derive(Clone)]
-struct PaymentGateway(pub Arc<String>);
-
-impl Display for GateCryptoAddress {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
-impl Display for PaymentGateway {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
-    }
-}
+type DialogueStorage = std::sync::Arc<ErasedStorage<State>>;
 
 #[tokio::main]
 async fn main() -> Result<(), BotError> {
@@ -99,15 +55,7 @@ async fn main() -> Result<(), BotError> {
     log::info!("Db connection esteblished!");
     let bot = Bot::new(token);
 
-    let redis_storage_price: PriceDialogueStorage = RedisStorage::open(&redis_url.clone(), Json)
-        .await
-        .unwrap()
-        .erase();
-    let redis_storage_info: InfoDialogStorage = RedisStorage::open(&redis_url.clone(), Json)
-        .await
-        .unwrap()
-        .erase();
-    let redis_storage_pay: PayDialogStorage = RedisStorage::open(&redis_url.clone(), Json)
+    let dialogue_price: DialogueStorage = RedisStorage::open(&redis_url.clone(), Json)
         .await
         .unwrap()
         .erase();
@@ -118,9 +66,7 @@ async fn main() -> Result<(), BotError> {
             db.clone(),
             gate_crypto_address.clone(),
             payment_gateway.clone(),
-            redis_storage_price,
-            redis_storage_info,
-            redis_storage_pay
+            dialogue_price
         ])
         .build()
         .dispatch()
@@ -148,40 +94,22 @@ fn handler() -> Handler<'static, DependencyMap, Result<(), BotError>, DpHandlerD
                 .branch(dptree::case![Commands::Help].endpoint(handle_help_command))
                 .branch(
                     dptree::case![Commands::SetPrice]
-                        .enter_dialogue::<Message, ErasedStorage<PriceState>, PriceState>()
+                        .enter_dialogue::<Message, ErasedStorage<State>, State>()
                         .endpoint(start_price_dialogue),
-                )
-                .branch(
-                    dptree::case![Commands::Info]
-                        .enter_dialogue::<Message, ErasedStorage<ShowInfoState>, ShowInfoState>()
-                        .endpoint(start_info_dialogue),
-                )
-                .branch(
-                    dptree::case![Commands::Pay(payload)]
-                        .enter_dialogue::<Message, ErasedStorage<PayState>, PayState>()
-                        .endpoint(start_pay_dialogue),
                 )
                 .endpoint(not_implemented),
         )
         .branch(
             Update::filter_callback_query()
-                .enter_dialogue::<CallbackQuery, ErasedStorage<PriceState>, PriceState>()
+                .enter_dialogue::<CallbackQuery, ErasedStorage<State>, State>()
                 .branch(
-                    dptree::case![PriceState::PriceSelectChannel]
+                    dptree::case![State::Price()::PriceSelectChannel]
                         .endpoint(handle_channel_selection),
                 ),
         )
         .branch(
-            Update::filter_callback_query()
-                .enter_dialogue::<CallbackQuery, ErasedStorage<ShowInfoState>, ShowInfoState>()
-                .branch(
-                    dptree::case![ShowInfoState::SelectChannel]
-                        .endpoint(handle_info_channel_selection),
-                ),
-        )
-        .branch(
             Update::filter_message()
-                .enter_dialogue::<Message, ErasedStorage<PriceState>, PriceState>()
+                .enter_dialogue::<Message, ErasedStorage<State>, State>()
                 .branch(
                     dptree::case![PriceState::EnterPrice {
                         channel_id,
@@ -192,26 +120,10 @@ fn handler() -> Handler<'static, DependencyMap, Result<(), BotError>, DpHandlerD
         )
         .branch(
             Update::filter_message()
-                .enter_dialogue::<Message, ErasedStorage<PriceState>, PriceState>()
+                .enter_dialogue::<Message, ErasedStorage<State>, State>()
                 .branch(
                     dptree::case![PriceState::EnterCryptoAddress { channel_id }]
                         .endpoint(handle_crypto_address_input),
-                ),
-        )
-        .branch(
-            Update::filter_message()
-                .enter_dialogue::<Message, ErasedStorage<PayState>, PayState>()
-                .branch(
-                    dptree::case![PayState::SelectChannel { channel_id }]
-                        .endpoint(handle_pay_channel_selection),
-                ),
-        )
-        .branch(
-            Update::filter_callback_query()
-                .enter_dialogue::<CallbackQuery, ErasedStorage<PayState>, PayState>()
-                .branch(
-                    dptree::case![PayState::SelectChannel { channel_id }]
-                        .endpoint(handle_pay_button),
                 ),
         )
         .branch(Update::filter_message().endpoint(handle_chat_message))
@@ -345,7 +257,7 @@ async fn start_price_dialogue(
     bot: Bot,
     msg: Message,
     db: DatabaseConnection,
-    dialogue: PriceDialogue,
+    dialogue: UserDialogue,
 ) -> Result<(), BotError> {
     let owner_id = msg.from.unwrap().id;
     let channels: Vec<db::channel::Model> = Channel::find()
@@ -378,7 +290,7 @@ async fn start_price_dialogue(
 async fn handle_channel_selection(
     bot: Bot,
     q: CallbackQuery,
-    dialogue: PriceDialogue,
+    dialogue: UserDialogue,
     db: DatabaseConnection,
 ) -> Result<(), BotError> {
     // First, answer the callback query to stop the loading animation
@@ -442,7 +354,7 @@ async fn not_implemented(bot: Bot, msg: Message) -> Result<(), BotError> {
 async fn handle_price_input(
     bot: Bot,
     msg: Message,
-    dialogue: PriceDialogue,
+    dialogue: UserDialogue,
     (channel_id, channel_name): (i64, String),
     db: DatabaseConnection,
 ) -> Result<(), BotError> {
@@ -495,7 +407,7 @@ async fn handle_price_input(
 async fn handle_crypto_address_input(
     bot: Bot,
     msg: Message,
-    dialogue: PriceDialogue,
+    dialogue: UserDialogue,
     channel_id: i64,
     db: DatabaseConnection,
 ) -> Result<(), BotError> {
@@ -532,228 +444,3 @@ async fn handle_crypto_address_input(
     Ok(())
 }
 
-async fn start_pay_dialogue(bot: Bot, msg: Message, dialogue: PayDialog) -> Result<(), BotError> {
-    match msg.text() {
-        Some(messate) => {
-            if let Some(payload) = messate.strip_prefix("/start ") {
-                if let Some(channel_id_str) = payload.strip_prefix("pay_channel_") {
-                    if let Ok(channel_id) = channel_id_str.parse::<i64>() {
-                        dialogue
-                            .update(PayState::SelectChannel {
-                                channel_id: channel_id.into(),
-                            })
-                            .await?;
-                        return Ok(());
-                    }
-                }
-            }
-        }
-        None => {}
-    }
-    bot.send_message(
-        msg.chat.id,
-        "Hello! Enter channel which you want to pay subscription:",
-    )
-    .await?;
-    dialogue
-        .update(PayState::SelectChannel { channel_id: None })
-        .await?;
-    Ok(())
-}
-
-async fn start_info_dialogue(
-    bot: Bot,
-    msg: Message,
-    db: DatabaseConnection,
-    dialogue: InfoDialog,
-) -> Result<(), BotError> {
-    let owner_id = msg.from.unwrap().id;
-    let channels: Vec<db::channel::Model> = Channel::find()
-        .filter(db::channel::Column::OwnerTelegramId.eq(owner_id.0))
-        .all(&db)
-        .await?;
-    let channels_count = channels.len();
-    if channels_count == 0 {
-        bot.send_message(msg.chat.id, "You have no channel ownhership.")
-            .await?;
-        dialogue.exit().await?;
-        return Ok(());
-    }
-    let buttons: Vec<Vec<InlineKeyboardButton>> = channels
-        .iter()
-        .map(|c| {
-            let channel_name = c.title.clone();
-            let callback_data = format!("channel_{}", c.channel_id);
-            vec![InlineKeyboardButton::callback(channel_name, callback_data)]
-        })
-        .collect();
-    let keyboard = InlineKeyboardMarkup::new(buttons);
-    bot.send_message(msg.chat.id, "Select a channel: ")
-        .reply_markup(keyboard)
-        .await?;
-    dialogue.update(ShowInfoState::SelectChannel).await?;
-    Ok(())
-}
-
-async fn handle_info_channel_selection(
-    bot: Bot,
-    q: CallbackQuery,
-    db: DatabaseConnection,
-    dialogue: InfoDialog,
-) -> Result<(), BotError> {
-    bot.answer_callback_query(q.id).await?;
-    let message = q.message.unwrap();
-    let chat_id = message.chat().id;
-
-    if let Some(data) = q.data {
-        if let Some(channel_id_str) = data.strip_prefix("channel_") {
-            if let Ok(channel_id) = channel_id_str.parse::<i64>() {
-                if let Some(channel) = Channel::find_by_id(channel_id).one(&db).await? {
-                    let monthly_price = channel.monthly_price.unwrap();
-                    let title = channel.title.clone();
-                    let crypto_address = channel.crypto_address.clone();
-                    let message_id = message.id();
-                    bot.delete_message(chat_id, message_id).await?;
-                    match crypto_address {
-                        Some(address) => {
-                            bot.send_message(
-                                chat_id,
-                                format!(
-                                    "✅ Channel \"{}\" has USD {:.2} per month price and {} crypto address for payment.",
-                                    title, monthly_price, address
-                                ),
-                            ).await?;
-                        }
-                        None => {
-                            bot.send_message(
-                                chat_id,
-                                format!(
-                                    "✅ Channel \"{}\" has USD {:.2} per month price and no crypto address for payment.",
-                                    title, monthly_price
-                                ),
-                            ).await?;
-                        }
-                    }
-                    dialogue.exit().await?;
-                } else {
-                    bot.send_message(chat_id, "Channels not found").await?;
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
-async fn handle_pay_channel_selection(
-    bot: Bot,
-    msg: Message,
-    channel_id: Option<i64>,
-    db: DatabaseConnection,
-) -> Result<(), BotError> {
-    let mut channels: Vec<db::channel::Model> = vec![];
-    if let Some(channel_id) = channel_id {
-        channels = Channel::find_by_id(channel_id).all(&db).await?;
-    } else {
-        if let Some(name) = msg.text() {
-            channels = Channel::find()
-                .filter(db::channel::Column::Title.starts_with(name))
-                .all(&db)
-                .await?;
-        } else {
-            bot.send_message(msg.chat.id, "Please, enter valid channel name")
-                .await?;
-            return Ok(());
-        }
-    }
-
-    if channels.len() == 0 {
-        bot.send_message(msg.chat.id, "Channels not found").await?;
-        return Ok(());
-    }
-    let buttons: Vec<Vec<InlineKeyboardButton>> = channels
-        .iter()
-        .map(|c| {
-            let channel_name = c.title.clone();
-            let callback_data = format!("channel_{}", c.channel_id);
-            vec![InlineKeyboardButton::callback(channel_name, callback_data)]
-        })
-        .collect();
-
-    let keyboard = InlineKeyboardMarkup::new(buttons);
-
-    bot.send_message(msg.chat.id, "Select a channel: ")
-        .reply_markup(keyboard)
-        .await?;
-    Ok(())
-}
-
-async fn handle_pay_button(
-    bot: Bot,
-    q: CallbackQuery,
-    db: DatabaseConnection,
-    dialogue: PayDialog,
-    payment_gateway: PaymentGateway,
-) -> Result<(), BotError> {
-    bot.answer_callback_query(q.id).await?;
-    let message = q.message.unwrap();
-    let chat_id = message.chat().id;
-    let message_id = message.id();
-    let telegram_id = q.from.id.0.try_into().unwrap();
-    if let Some(data) = q.data {
-        if let Some(channel_id_str) = data.strip_prefix("channel_") {
-            if let Ok(channel_id) = channel_id_str.parse::<i64>() {
-                if let Some(channel) = Channel::find_by_id(channel_id).one(&db).await? {
-                    if channel.crypto_address.is_none() {
-                        bot.send_message(chat_id, "Unfortunately, current channel doesn't have a valid crypto address valid")
-                            .await?;
-                        return Ok(());
-                    }
-                    bot.delete_message(chat_id, message_id).await?;
-                    let monthly_price = channel.monthly_price.unwrap();
-                    let wallet_address = channel.crypto_address.unwrap();
-                    let date_now = Utc::now().into();
-                    let transaction = TransactionModel {
-                        telegram_id: Set(telegram_id),
-                        channel_id: Set(channel_id),
-                        price: Set(monthly_price),
-                        status: Set("active".to_string()),
-                        created_at: Set(date_now),
-                        wallet_address: Set(wallet_address.clone()),
-                        message_id: Set(message_id.0.into()),
-                        chat_id: Set(chat_id.0),
-                        currency: Set("USDT".to_string()),
-                        ..Default::default()
-                    };
-                    let transaction_id = transaction.insert(&db).await?;
-                    /*
-                    let transaction_id = insert_result.id;
-                    let event = PaymentEvent {
-                        transaction_id,
-                        telegram_id,
-                        channel_id,
-                        chat_id: chat_id.0,
-                        price: monthly_price,
-                        wallet_address: wallet_address.clone(),
-                    };
-                    send_payment_event(&event, &mut redis_manager).await?;
-                    */
-                    let link = format!("{}/{}", payment_gateway, transaction_id.id);
-                    let message = format!(
-                        "Please follow this link {} to proceed the action. Thank you!",
-                        link
-                    );
-                    bot.send_message(chat_id, message).await?;
-                    dialogue
-                        .update(PayState::Pay {
-                            channel_id,
-                            channel_name: channel.title,
-                        })
-                        .await?;
-                } else {
-                    bot.send_message(chat_id, "Channel not found").await?;
-                }
-            }
-        }
-    }
-    Ok(())
-}
