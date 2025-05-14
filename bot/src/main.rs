@@ -83,7 +83,7 @@ fn handler() -> Handler<'static, DependencyMap, Result<(), BotError>, DpHandlerD
                 .endpoint(handle_chat_member_update),
         )
         .branch(ui::info::schema())
-        //.branch(ui::pay::schema())
+        .branch(ui::pay::schema())
         //.branch(ui::price::schema())
         .branch(
             Update::filter_message()
@@ -91,13 +91,7 @@ fn handler() -> Handler<'static, DependencyMap, Result<(), BotError>, DpHandlerD
                 .branch(dptree::case![Commands::Start].endpoint(handle_start_command))
                 .branch(dptree::case![Commands::Help].endpoint(handle_help_command))
                 .endpoint(not_implemented),
-        ).branch(Update::filter_message().endpoint(handle_chat_message))
-
-}
-
-async fn handle_chat_message(bot: Bot, update: Message) -> Result<(), BotError> {
-    bot.send_message(update.chat.id, "Hello!").await?;
-    Ok(())
+        )
 }
 
 async fn handle_chat_member_update(

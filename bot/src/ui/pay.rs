@@ -65,6 +65,7 @@ async fn handle_pay_channel_selection(
     db: DatabaseConnection,
 ) -> Result<(), BotError> {
     let mut channels: Vec<db::channel::Model> = vec![];
+
     if let Some(channel_id) = channel_id {
         channels = Channel::find_by_id(channel_id).all(&db).await?;
     } else {
@@ -172,31 +173,29 @@ async fn handle_pay_button(
     Ok(())
 }
 
-fn is_pay_select_channel(state: &GlobalState) -> bool {
-    matches!(state, GlobalState::Pay(State::SelectChannel { .. }))
-}
-
 pub(crate) fn schema() -> UpdateHandler<BotError> {
     dptree::entry()
         .branch(
             Update::filter_message()
+                .enter_dialogue::<Message, ErasedStorage<GlobalState>, GlobalState>()
                 .filter_command::<Commands>()
-                .branch(
-                    dptree::case![Commands::Pay(payload)]
-                        .enter_dialogue::<Message, ErasedStorage<GlobalState>, GlobalState>()
-                        .endpoint(start_pay_dialogue),
-                ),
+                .branch(dptree::case![Commands::Pay(payload)].endpoint(start_pay_dialogue)),
         )
         .branch(
             Update::filter_message()
                 .enter_dialogue::<Message, ErasedStorage<GlobalState>, GlobalState>()
-                .filter(is_pay_select_channel)
-                .endpoint(handle_pay_channel_selection),
+                .branch(
+                    dptree::case![GlobalState::Pay(x)].branch(
+                        dptree::case![State::SelectChannel { channel_id }]
+                            .endpoint(handle_pay_channel_selection),
+                    ),
+                ),
         )
         .branch(
             Update::filter_callback_query()
                 .enter_dialogue::<CallbackQuery, ErasedStorage<GlobalState>, GlobalState>()
-                .filter(is_pay_select_channel)
-                .endpoint(handle_pay_button),
+                .branch(dptree::case![GlobalState::Pay(x)].branch(
+                    dptree::case![State::SelectChannel { channel_id }].endpoint(handle_pay_button),
+                )),
         )
 }
