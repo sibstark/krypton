@@ -217,35 +217,36 @@ async fn handle_crypto_address_input(
 }
 
 pub(crate) fn schema() -> UpdateHandler<BotError> {
-    dptree::entry().branch(
-        Update::filter_message()
-            .branch(
-                dptree::case![Commands::SetPrice]
-                    .enter_dialogue::<Message, ErasedStorage<GlobalState>, GlobalState>()
-                    .endpoint(start_price_dialogue),
-            )
-            .branch(
-                Update::filter_callback_query()
-                    .enter_dialogue::<CallbackQuery, ErasedStorage<GlobalState>, GlobalState>()
-                    .filter(|state: &GlobalState| {
-                        matches!(state, GlobalState::Price(State::SelectChannel))
-                    })
-                    .endpoint(handle_channel_selection),
-            )
-            .branch(
-                Update::filter_message()
-                    .enter_dialogue::<Message, ErasedStorage<GlobalState>, GlobalState>()
-                    .filter(|state: &GlobalState| {
-                        matches!(state, GlobalState::Price(State::EnterPrice { .. }))
-                    })
-                    .endpoint(handle_price_input)
-            ).branch(
-                Update::filter_message()
-                    .enter_dialogue::<Message, ErasedStorage<GlobalState>, GlobalState>()
-                    .filter(|state: &GlobalState| {
-                        matches!(state, GlobalState::Price(State::EnterCryptoAddress { .. }))
-                    })
-                    .endpoint(handle_crypto_address_input)
-            )
-    )
+    dptree::entry()
+        .branch(
+            Update::filter_message()
+                .enter_dialogue::<Message, ErasedStorage<GlobalState>, GlobalState>()
+                .filter_command::<Commands>()
+                .branch(dptree::case![Commands::SetPrice].endpoint(start_price_dialogue)),
+        )
+        .branch(
+            Update::filter_message()
+                .enter_dialogue::<Message, ErasedStorage<GlobalState>, GlobalState>()
+                .branch(
+                    dptree::case![GlobalState::Price(x)]
+                        .branch(
+                            dptree::case![State::EnterPrice {
+                                channel_id,
+                                channel_name
+                            }]
+                            .endpoint(handle_price_input),
+                        )
+                        .branch(
+                            dptree::case![State::EnterCryptoAddress { channel_id }]
+                                .endpoint(handle_crypto_address_input),
+                        ),
+                ),
+        )
+        .branch(
+            Update::filter_callback_query()
+                .enter_dialogue::<CallbackQuery, ErasedStorage<GlobalState>, GlobalState>()
+                .branch(dptree::case![GlobalState::Price(x)].branch(
+                    dptree::case![State::SelectChannel].endpoint(handle_channel_selection),
+                )),
+        )
 }

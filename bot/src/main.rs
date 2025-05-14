@@ -84,7 +84,7 @@ fn handler() -> Handler<'static, DependencyMap, Result<(), BotError>, DpHandlerD
         )
         .branch(ui::info::schema())
         .branch(ui::pay::schema())
-        //.branch(ui::price::schema())
+        .branch(ui::price::schema())
         .branch(
             Update::filter_message()
                 .filter_command::<Commands>()
