@@ -171,9 +171,11 @@ async fn handle_pay_button(
     }
     Ok(())
 }
+
 fn is_pay_select_channel(state: &GlobalState) -> bool {
     matches!(state, GlobalState::Pay(State::SelectChannel { .. }))
 }
+
 pub(crate) fn schema() -> UpdateHandler<BotError> {
     dptree::entry()
         .branch(

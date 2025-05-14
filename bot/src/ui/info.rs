@@ -116,8 +116,11 @@ pub(crate) fn schema() -> UpdateHandler<BotError> {
         .branch(
             Update::filter_callback_query()
                 .enter_dialogue::<CallbackQuery, ErasedStorage<GlobalState>, GlobalState>()
-                .filter(|state: &GlobalState| {
-                    matches!(state, GlobalState::Info(State::SelectChannel))
+                .filter_async(|dialogue: UserDialogue| async move {
+                    matches!(
+                        dialogue.get().await.ok().flatten(),
+                        Some(GlobalState::Info(State::SelectChannel))
+                    )
                 })
                 .endpoint(handle_info_channel_selection),
         )
