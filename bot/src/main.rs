@@ -9,7 +9,7 @@ use db::{Channel, ChannelModel, User, UserModel};
 use dotenv::dotenv;
 use sea_orm::{ActiveModelTrait, Database, DatabaseConnection, EntityTrait, Set};
 use std::sync::Arc;
-use std::{env, vec};
+use std::env;
 use teloxide::dispatching::dialogue::Storage;
 use teloxide::dispatching::dialogue::serializer::{Bincode, Json};
 use teloxide::types::ChatKind;
@@ -49,7 +49,7 @@ async fn main() -> Result<(), BotError> {
     // let manager = client.get_multiplexed_tokio_connection().await?;
     log::info!("Db connection esteblished!");
     let bot = Bot::new(token);
-
+    // Bincode works, i checked
     let dialogue: DialogueStorage = RedisStorage::open(&redis_url.clone(), Json)
         .await
         .unwrap()
