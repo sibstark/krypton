@@ -66,6 +66,7 @@ dependencies = [
  "redis",
  "sea-orm",
  "serde",
+ "serde_json",
  "tokio",
 ]
 
