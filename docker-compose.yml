@@ -37,6 +37,8 @@ services:
       - "5432:5432"
     volumes:
       - ./pgdata:/var/lib/postgresql/data
+    networks:
+      - pgnetwork
   pgadmin:
     image: dpage/pgadmin4:latest
     restart: always
@@ -48,6 +50,20 @@ services:
       - pgadmin:/var/lib/pgadmin
     depends_on:
       - db
+    networks:
+      - pgnetwork
+  api:
+    build:
+      context: .
+      dockerfile: ./api/Dockerfile
+    env_file:
+      - .env
+    restart: always
+    ports:
+      - "3005:80"
+    depends_on:
+      - db
+      - dragonfly
     networks:
       - pgnetwork
 volumes:
