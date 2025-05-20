@@ -3,18 +3,43 @@ use std::{collections::HashMap, env, sync::Arc};
 use axum::{
     Json, Router,
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderValue, StatusCode},
     response::IntoResponse,
     routing::{get, post},
 };
+use axum_extra::headers::Authorization;
+use axum_extra::{TypedHeader, headers::authorization::Credentials};
+use chrono::Utc;
 use db::{Transaction, TransactionModel};
 use dotenv;
 use events;
+use rand::{self, Rng};
 use redis::{Client, aio::MultiplexedConnection};
 use sea_orm::{ActiveModelTrait, Database, DatabaseConnection, EntityTrait, IntoActiveModel, Set};
 use serde_json::{Value, json};
 use tokio;
 
+#[derive(Debug, Clone)]
+struct Wallet(pub String);
+
+impl Credentials for Wallet {
+    const SCHEME: &'static str = "Wallet";
+
+    fn decode(value: &axum::http::HeaderValue) -> Option<Self> {
+        let str_val = value.to_str().ok()?;
+        let prefix = format!("{} ", Self::SCHEME);
+        if str_val.starts_with(&prefix) {
+            Some(Wallet(str_val[prefix.len()..].to_string()))
+        } else {
+            None
+        }
+    }
+
+    fn encode(&self) -> axum::http::HeaderValue {
+        let encoded = format!("{} {}", Self::SCHEME, self.0);
+        HeaderValue::from_str(&encoded).unwrap()
+    }
+}
 #[derive(serde::Serialize)]
 struct ErrorResponse {
     error: String,
@@ -43,12 +68,12 @@ struct AppState {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv::dotenv().ok();
-    let port = env::var("PORT").expect("PORT must be set");
-    let connection_string = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let port = env::var("API_PORT").expect("PORT must be set");
+    let connection_string = env::var("API_DATABASE_URL").expect("DATABASE_URL must be set");
     let dragonfly_password =
-        env::var("DRAGONFLY_PASSWORD").expect("DRAGONFLY_PASSWORD must be set");
-
-    let redis_url = format!("redis://:{}@dragonfly:6379", dragonfly_password);
+        env::var("API_DRAGONFLY_PASSWORD").expect("API_DRAGONFLY_PASSWORD must be set");
+    let redis_host = env::var("API_HOST_URL").expect("API_HOST_URL must be set");
+    let redis_url = format!("redis://:{}@{}:6379", dragonfly_password, redis_host);
     let redis_client = Client::open(redis_url)?;
     let redis_connection = redis_client.get_multiplexed_async_connection().await?;
     let db = Database::connect(connection_string).await?;
@@ -61,6 +86,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = Router::new()
         .route("/api/payment/{id}", get(get_transaction))
         .route("/api/payment/{id}/start", post(start_payment))
+        .route("/api/auth/challenge", get(get_challenge))
         .with_state(state.clone());
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port))
@@ -131,6 +157,7 @@ async fn get_transaction(
 async fn start_payment(
     State(state): State<AppState>,
     Path(id): Path<i64>,
+    TypedHeader(Authorization(wallet)): TypedHeader<Authorization<Wallet>>,
 ) -> Result<impl IntoResponse, impl IntoResponse> {
     let transaction = Transaction::find_by_id(id)
         .one(&state.db)
@@ -183,4 +210,46 @@ async fn start_payment(
         }),
         ..Default::default()
     }))
+}
+
+#[derive(serde::Serialize)]
+pub struct TonProofChallenge {
+    domain: String,
+    timestamp: i64,
+    payload: String,
+}
+
+async fn get_challenge() -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    let mut rng = rand::rng();
+    let nonce: u64 = rng.random::<u64>();
+    let payload = format!("nonce_{}", nonce);
+
+    Ok(Json(DataResponse {
+        data: json!(TonProofChallenge {
+            domain: "krypton.com".to_string(),
+            timestamp: Utc::now().timestamp(),
+            payload,
+        }),
+        ..Default::default()
+    }))
+}
+
+#[derive(serde::Deserialize)]
+struct TonProofRequest {
+    address: String,
+    proof: ProofPayload,
+}
+
+#[derive(serde::Deserialize)]
+struct ProofPayload {
+    timestamp: i64,
+    domain: String,
+    payload: String,
+    signature: String,
+}
+
+#[derive(serde::Serialize)]
+pub struct AuthResponse {
+    valid: bool,
+    address: Option<String>,
 }
