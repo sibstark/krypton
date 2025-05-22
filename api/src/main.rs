@@ -6,17 +6,20 @@ use axum::{
     http::{HeaderValue, StatusCode},
     response::IntoResponse,
     routing::{get, post},
+    debug_handler
 };
 use axum_extra::headers::Authorization;
 use axum_extra::{TypedHeader, headers::authorization::Credentials};
-use chrono::Utc;
+use chrono::{Utc, Duration};
 use db::{Transaction, TransactionModel};
 use dotenv;
 use events;
+use base64::{engine::{general_purpose}, Engine};
 use rand::{self, Rng};
 use redis::{Client, aio::MultiplexedConnection};
-use sea_orm::{ActiveModelTrait, Database, DatabaseConnection, EntityTrait, IntoActiveModel, Set};
+use sea_orm::{ActiveModelTrait, Database, DatabaseConnection, EntityTrait };
 use serde_json::{Value, json};
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use tokio;
 
 #[derive(Debug, Clone)]
@@ -87,6 +90,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/payment/{id}", get(get_transaction))
         .route("/api/payment/{id}/start", post(start_payment))
         .route("/api/auth/challenge", get(get_challenge))
+        .route("/api/auth/tonproof", post(verify_proof))
         .with_state(state.clone());
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port))
@@ -96,7 +100,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     axum::serve(listener, app).await?;
     Ok(())
 }
-
 async fn get_transaction(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -252,4 +255,98 @@ struct ProofPayload {
 pub struct AuthResponse {
     valid: bool,
     address: Option<String>,
+}
+
+async fn verify_proof(
+    TypedHeader(Authorization(wallet)): TypedHeader<Authorization<Wallet>>,
+    Json(req): Json<TonProofRequest>,
+) -> Result<impl IntoResponse, impl IntoResponse> {
+    let now = Utc::now().timestamp();
+    if (req.proof.timestamp - now).abs() > Duration::minutes(5).num_seconds() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: json!(AuthResponse { valid: false, address: None }),
+            }),
+        ));
+    }
+
+    // Проверка домена (опционально)
+    if req.proof.domain != "yourdomain.com" {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: json!(AuthResponse { valid: false, address: None }),
+            }),
+        ));
+    }
+
+    // Верификация подписи
+    let signature_bytes = match general_purpose::STANDARD.decode(&req.proof.signature) {
+        Ok(bytes) => bytes,
+        Err(_) => return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: json!(AuthResponse { valid: false, address: None }),
+            }),
+        ))
+    };
+
+    let signature_array: [u8; 64] = match signature_bytes.as_slice().try_into() {
+        Ok(arr) => arr,
+        Err(_) => return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: json!(AuthResponse { valid: false, address: None }),
+            }),
+        )),
+    };
+
+    let sig = ed25519_dalek::Signature::from_bytes(&signature_array);
+
+    let pk_bytes = match general_purpose::STANDARD.decode(&req.address) {
+        Ok(bytes) => bytes,
+        Err(_) =>         return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: json!(AuthResponse { valid: false, address: None }),
+            }),
+        ))
+    };
+
+    let pk_array: [u8; 32] = match pk_bytes.as_slice().try_into() {
+        Ok(arr) => arr,
+        Err(_) => return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: json!(AuthResponse { valid: false, address: None }),
+            }),
+        ))
+    };
+
+    let public_key = match VerifyingKey::from_bytes(&pk_array) {
+        Ok(pk) => pk,
+        Err(_) => return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: json!(AuthResponse { valid: false, address: None }),
+            }),
+        ))
+    };
+
+    if public_key.verify(req.proof.payload.as_bytes(), &sig).is_ok() {
+        Ok(Json(
+            DataResponse {
+                data: json!(AuthResponse { valid: true, address: Some(req.address) }),
+                ..Default::default()
+            }
+        ))
+    } else {
+        Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: json!(AuthResponse { valid: false, address: None }),
+            }),
+        ))
+    }
 }

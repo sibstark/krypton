@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-axum = "0.8.4"
+axum = { version = "0.8.4", features = ["macros"]}
 dotenv = "0.15.0"
 redis = { version = "0.30.0", features = ["tokio-comp", "aio"] }
 serde = { version="1.0.219", features = ["derive"] }
@@ -17,3 +17,5 @@ axum-extra = { version="0.10.1", features = ["typed-header"] }
 rust_decimal = "1.37.1"
 chrono = "0.4.41"
 rand = "0.9.1"
+base64 = "0.22.1"
+ed25519-dalek = "2.1.1"
