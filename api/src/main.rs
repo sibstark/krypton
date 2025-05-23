@@ -15,9 +15,9 @@ use db::{Transaction, TransactionModel};
 use dotenv;
 use events;
 use base64::{engine::{general_purpose}, Engine};
-use rand::{self, Rng};
-use redis::{Client, aio::MultiplexedConnection};
-use sea_orm::{ActiveModelTrait, Database, DatabaseConnection, EntityTrait };
+use rand::{self, Rng };
+use redis::{Client, aio::MultiplexedConnection, AsyncCommands};
+use sea_orm::{ActiveModelTrait, Database, DatabaseConnection, EntityTrait, Iden};
 use serde_json::{Value, json};
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use tokio;
@@ -64,7 +64,7 @@ impl Default for DataResponse {
 }
 #[derive(Clone)]
 struct AppState {
-    redis: Arc<tokio::sync::Mutex<MultiplexedConnection>>,
+    redis: MultiplexedConnection,
     db: DatabaseConnection,
 }
 
@@ -82,7 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let db = Database::connect(connection_string).await?;
 
     let state = AppState {
-        redis: Arc::new(tokio::sync::Mutex::new(redis_connection)),
+        redis: redis_connection,
         db,
     };
 
@@ -222,10 +222,29 @@ pub struct TonProofChallenge {
     payload: String,
 }
 
-async fn get_challenge() -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let mut rng = rand::rng();
-    let nonce: u64 = rng.random::<u64>();
+#[axum::debug_handler]
+async fn get_challenge(
+    State(state): State<AppState>,
+    TypedHeader(Authorization(wallet)): TypedHeader<Authorization<Wallet>>,
+) -> Result<impl IntoResponse, impl IntoResponse> {
+    let mut redis  = state.redis;
+    let nonce: u64 = rand::random::<u64>();
     let payload = format!("nonce_{}", nonce);
+
+    // пример хранения в Redis
+    let key = format!("ton_proof:{}", wallet.0);
+
+    match redis.set_ex::<_, _, ()>(key, payload.clone(), 300).await {
+        Ok(_) => (),
+        Err(_) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "Redis error".to_string(),
+                }),
+            ));
+        }
+    }
 
     Ok(Json(DataResponse {
         data: json!(TonProofChallenge {
@@ -258,25 +277,57 @@ pub struct AuthResponse {
 }
 
 async fn verify_proof(
+    State(state): State<AppState>,
     TypedHeader(Authorization(wallet)): TypedHeader<Authorization<Wallet>>,
     Json(req): Json<TonProofRequest>,
 ) -> Result<impl IntoResponse, impl IntoResponse> {
+    if wallet.0 != req.address {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(ErrorResponse {
+                error: "Wallet header mismatch".to_string()
+            }),
+        ));
+    }
     let now = Utc::now().timestamp();
+    let mut redis = state.redis;
+    let key = format!("ton_proof:{}", wallet.0);
+    let stored_payload: Option<String> = redis.get(&key).await.ok();
+
+    let Some(payload) = stored_payload else {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(ErrorResponse {
+                error: "Key not found".to_string(),
+            }),
+        ));
+    };
+
+    if payload != req.proof.payload {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(ErrorResponse {
+                error: "Invalid payload".to_string()
+            }),
+        ));
+    }
+
     if (req.proof.timestamp - now).abs() > Duration::minutes(5).num_seconds() {
         return Err((
-            StatusCode::NOT_FOUND,
+            StatusCode::UNAUTHORIZED,
             Json(ErrorResponse {
-                error: json!(AuthResponse { valid: false, address: None }),
+                error: "Too late".to_string()
             }),
         ));
     }
 
     // Проверка домена (опционально)
-    if req.proof.domain != "yourdomain.com" {
+    let domain = env::var("API_DOMAIN").expect("API_DOMAIN should be set");
+    if req.proof.domain != domain {
         return Err((
-            StatusCode::NOT_FOUND,
+            StatusCode::UNAUTHORIZED,
             Json(ErrorResponse {
-                error: json!(AuthResponse { valid: false, address: None }),
+                error: "Invalid domain".to_string()
             }),
         ));
     }
@@ -285,9 +336,9 @@ async fn verify_proof(
     let signature_bytes = match general_purpose::STANDARD.decode(&req.proof.signature) {
         Ok(bytes) => bytes,
         Err(_) => return Err((
-            StatusCode::NOT_FOUND,
+            StatusCode::UNAUTHORIZED,
             Json(ErrorResponse {
-                error: json!(AuthResponse { valid: false, address: None }),
+                error: "Invalid signature size".to_string()
             }),
         ))
     };
@@ -295,9 +346,9 @@ async fn verify_proof(
     let signature_array: [u8; 64] = match signature_bytes.as_slice().try_into() {
         Ok(arr) => arr,
         Err(_) => return Err((
-            StatusCode::NOT_FOUND,
+            StatusCode::UNAUTHORIZED,
             Json(ErrorResponse {
-                error: json!(AuthResponse { valid: false, address: None }),
+                error: "Invalid signature_array".to_string()
             }),
         )),
     };
@@ -307,19 +358,19 @@ async fn verify_proof(
     let pk_bytes = match general_purpose::STANDARD.decode(&req.address) {
         Ok(bytes) => bytes,
         Err(_) =>         return Err((
-            StatusCode::NOT_FOUND,
+            StatusCode::UNAUTHORIZED,
             Json(ErrorResponse {
-                error: json!(AuthResponse { valid: false, address: None }),
+                error: "Invalid pk bytes".to_string()
             }),
         ))
     };
 
     let pk_array: [u8; 32] = match pk_bytes.as_slice().try_into() {
         Ok(arr) => arr,
-        Err(_) => return Err((
-            StatusCode::NOT_FOUND,
+        Err(error) => return Err((
+            StatusCode::UNAUTHORIZED,
             Json(ErrorResponse {
-                error: json!(AuthResponse { valid: false, address: None }),
+                error: error.to_string()
             }),
         ))
     };
@@ -327,14 +378,15 @@ async fn verify_proof(
     let public_key = match VerifyingKey::from_bytes(&pk_array) {
         Ok(pk) => pk,
         Err(_) => return Err((
-            StatusCode::NOT_FOUND,
+            StatusCode::UNAUTHORIZED,
             Json(ErrorResponse {
-                error: json!(AuthResponse { valid: false, address: None }),
+                error: "Invalid public key".to_string()
             }),
         ))
     };
 
     if public_key.verify(req.proof.payload.as_bytes(), &sig).is_ok() {
+        redis.del(&key).await.unwrap_or(());
         Ok(Json(
             DataResponse {
                 data: json!(AuthResponse { valid: true, address: Some(req.address) }),
@@ -343,9 +395,9 @@ async fn verify_proof(
         ))
     } else {
         Err((
-            StatusCode::NOT_FOUND,
+            StatusCode::UNAUTHORIZED,
             Json(ErrorResponse {
-                error: json!(AuthResponse { valid: false, address: None }),
+                error: "Invalid signature".to_string()
             }),
         ))
     }
